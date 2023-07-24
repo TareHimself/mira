@@ -45,6 +45,13 @@ kotlin {
                 @OptIn(org.jetbrains.compose.ExperimentalComposeLibrary::class)
                 implementation(compose.components.resources)
 
+                // Icon Packs https://github.com/DevSrSouza/compose-icons
+                implementation("br.com.devsrsouza.compose.icons:font-awesome:1.1.0")
+                implementation("br.com.devsrsouza.compose.icons:octicons:1.1.0")
+
+                //UUID https://github.com/benasher44/uuid
+                implementation("com.benasher44:uuid:0.7.1")
+
                 // Ktor
                 implementation("io.ktor:ktor-client-core:$ktorVersion")
                 implementation("io.ktor:ktor-client-content-negotiation:$ktorVersion")
@@ -58,6 +65,17 @@ kotlin {
 
                 implementation("com.arkivanov.decompose:decompose:$decomposeVersion")
                 implementation("com.arkivanov.decompose:extensions-compose-jetbrains:$decomposeVersion")
+
+
+                // Date Time https://github.com/Kotlin/kotlinx-datetime
+                implementation("org.jetbrains.kotlinx:kotlinx-datetime:0.4.0")
+
+                // Koin
+                implementation("io.insert-koin:koin-core:3.4.2")
+                implementation("io.insert-koin:koin-compose:1.0.3")
+
+                //Material 3
+                implementation(compose.material3)
             }
         }
         val commonTest by getting {
@@ -83,7 +101,7 @@ kotlin {
 }
 
 android {
-    namespace = "com.tarehimself.mangaz"
+    namespace = "com.tarehimself.mira"
     compileSdk = 33
     defaultConfig {
         minSdk = 24

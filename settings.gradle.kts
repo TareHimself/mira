@@ -30,6 +30,6 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Mangaz"
-include(":musiczAndroid")
+rootProject.name = "Mira"
+include(":miraAndroid")
 include(":shared")
