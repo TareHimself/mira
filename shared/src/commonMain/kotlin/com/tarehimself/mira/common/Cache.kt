@@ -1,11 +1,15 @@
 package com.tarehimself.mira.common
 
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+
 open class Cache<KeyType,ValueType>(inMaxSize: Int = Int.MAX_VALUE) {
     open  var maxSize: Int = inMaxSize
 
     open  var hashmap: HashMap<KeyType,ValueType> = HashMap<KeyType,ValueType>()
     open  var accessLog: ArrayList<KeyType> = ArrayList()
-
+    private val accessLogMutex: Mutex = Mutex()
     open  fun moveKeyToTop(key: KeyType){
         accessLog.remove(key)
         accessLog.add(0,key)
@@ -24,18 +28,23 @@ open class Cache<KeyType,ValueType>(inMaxSize: Int = Int.MAX_VALUE) {
     }
 
     open operator fun set(key: KeyType, value: ValueType){
-        if(accessLog.contains(key)){
-            hashmap[key] = value
-            moveKeyToTop(key)
-            return
-        }
 
-        if(accessLog.size + 1 > maxSize){
-            remove(accessLog.removeAt(accessLog.size - 1))
-        }
+        runBlocking {
+            accessLogMutex.withLock {
+                if(accessLog.contains(key)){
+                    hashmap[key] = value
+                    moveKeyToTop(key)
+                    return@runBlocking
+                }
 
-        accessLog.add(0,key)
-        hashmap[key] = value
+                if(accessLog.size + 1 > maxSize){
+                    remove(accessLog.removeAt(accessLog.size - 1))
+                }
+
+                accessLog.add(0,key)
+                hashmap[key] = value
+            }
+        }
     }
 
     val values get(): MutableCollection<ValueType>{

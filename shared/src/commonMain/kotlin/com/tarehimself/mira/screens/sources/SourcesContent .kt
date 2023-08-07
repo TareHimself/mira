@@ -7,8 +7,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.Button
-import androidx.compose.material.ButtonDefaults
+import androidx.compose.material.MaterialTheme
 import androidx.compose.material.Surface
 import androidx.compose.material.Text
 import androidx.compose.runtime.Composable
@@ -31,13 +30,14 @@ fun SourcesContent(component: SourcesComponent){
         component.getSources()
     }
 
-    Surface (modifier = Modifier.fillMaxSize()){
+    Surface (modifier = Modifier.fillMaxSize(), color = MaterialTheme.colors.background){
+        val sourcesToList = state.sources.filter { true }//{ !it.nsfw }
         LazyColumn(modifier = Modifier.fillMaxWidth()){
-            items(state.sources.size, key = {
-                state.sources[it]
+            items(sourcesToList.size, key = {
+                sourcesToList[it].id
             }) { idx ->
-                val source = state.sources[idx]
-                Surface(modifier = Modifier.height(60.dp).fillMaxWidth().padding(0.dp,10.dp)) {
+                val source = sourcesToList[idx]
+                Surface(modifier = Modifier.height(60.dp).fillMaxWidth().padding(10.dp,10.dp)) {
                     Surface(modifier = Modifier.fillMaxSize().clip(shape = RoundedCornerShape(5.dp)),color = Color.Blue) {
                         Pressable(modifier = Modifier.fillMaxSize(), onClick = {
                             component.onItemSelected(source.id)

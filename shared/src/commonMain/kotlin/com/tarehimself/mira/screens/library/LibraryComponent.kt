@@ -1,12 +1,9 @@
-package com.tarehimself.mira.ui.search
+package com.tarehimself.mira.screens.library
 
 import com.arkivanov.decompose.ComponentContext
 import com.arkivanov.decompose.value.MutableValue
 import com.arkivanov.decompose.value.update
 import com.arkivanov.essenty.lifecycle.Lifecycle
-import com.tarehimself.mira.common.Cache
-import com.tarehimself.mira.common.debug
-import com.tarehimself.mira.data.DefaultRealmRepository
 import com.tarehimself.mira.data.RealmRepository
 import com.tarehimself.mira.data.StoredManga
 import org.koin.core.component.KoinComponent
@@ -14,6 +11,7 @@ import org.koin.core.component.inject
 
 
 interface LibraryComponent : KoinComponent  {
+
     val state: MutableValue<State>
 
     data class State(
@@ -32,9 +30,13 @@ class DefaultLibraryComponent (componentContext: ComponentContext,
                                override val onMangaSelected: (manga: StoredManga) -> Unit
 ) : LibraryComponent,ComponentContext by componentContext {
 
-    override val realmDatabase: RealmRepository by inject<RealmRepository>()
+    override val realmDatabase: RealmRepository by inject()
 
-    override val state: MutableValue<LibraryComponent.State> = MutableValue(LibraryComponent.State(library = realmDatabase.getLibrary().values.toList()))
+    override val state: MutableValue<LibraryComponent.State> = MutableValue(
+        LibraryComponent.State(
+            library = realmDatabase.bookmarks.values.toList()
+        )
+    )
 
 
     init {
@@ -42,7 +44,7 @@ class DefaultLibraryComponent (componentContext: ComponentContext,
             var unsubscribe: (() -> Unit) ? = null
             override fun onCreate() {
                 super.onCreate()
-                unsubscribe = realmDatabase.subscribeOnLibraryUpdated(onLibraryUpdated)
+                unsubscribe = realmDatabase.subscribeOnBookmarksUpdated(onLibraryUpdated)
             }
 
             override fun onDestroy() {
@@ -54,7 +56,7 @@ class DefaultLibraryComponent (componentContext: ComponentContext,
 
     override val onLibraryUpdated: () -> Unit = {
         state.update {
-            it.library = realmDatabase.getLibrary().values.toList()
+            it.library = realmDatabase.bookmarks.values.toList()
             it
         }
     }

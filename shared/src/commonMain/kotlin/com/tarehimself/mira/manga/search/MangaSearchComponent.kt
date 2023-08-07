@@ -6,9 +6,8 @@ import com.arkivanov.decompose.value.update
 import com.arkivanov.essenty.parcelable.Parcelable
 import com.arkivanov.essenty.parcelable.Parcelize
 import com.arkivanov.essenty.statekeeper.consume
-import com.tarehimself.mira.common.debug
-import com.tarehimself.mira.data.MangaApi
 import com.tarehimself.mira.data.ApiMangaPreview
+import com.tarehimself.mira.data.MangaApi
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -66,7 +65,6 @@ class DefaultMangaSearchComponent(componentContext: ComponentContext,sourceId: S
             val response = api.search(query = query, source = state.value.sourceId)
             val data = response.data
             if(data != null){
-                debug("Fetched Initial Data")
                 state.update {
                     it.items = ArrayList(data.items)
                     it.latestNext = data.next
@@ -110,7 +108,6 @@ class DefaultMangaSearchComponent(componentContext: ComponentContext,sourceId: S
         val response = api.search(query = state.value.query, source = state.value.sourceId)
         val data = response.data
         if(data != null){
-            debug("Fetched Initial Data")
             state.update {
                 it.items = ArrayList(data.items)
                 it.latestNext = data.next
@@ -126,15 +123,6 @@ class DefaultMangaSearchComponent(componentContext: ComponentContext,sourceId: S
     }
 
     override suspend fun tryLoadMoreData() {
-        debug("Loading more data")
-
-        debug(when {
-            state.value.latestNext == null -> "No next page"
-            else -> state.value.latestNext!!
-        })
-
-        debug("Loading data state: ${state.value.isLoadingData}")
-
         if(state.value.latestNext != null && !state.value.isLoadingData){
             state.update {
                 it.isLoadingData = true

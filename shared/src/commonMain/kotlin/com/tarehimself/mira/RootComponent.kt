@@ -12,8 +12,8 @@ import com.arkivanov.essenty.lifecycle.Lifecycle
 import com.arkivanov.essenty.parcelable.Parcelable
 import com.arkivanov.essenty.parcelable.Parcelize
 import com.benasher44.uuid.uuid4
+import com.tarehimself.mira.data.ApiMangaChapter
 import com.tarehimself.mira.data.ApiMangaPreview
-import com.tarehimself.mira.data.MangaChapter
 import com.tarehimself.mira.data.MangaPreview
 import com.tarehimself.mira.data.RealmRepository
 import com.tarehimself.mira.manga.reader.DefaultMangaReaderComponent
@@ -24,6 +24,8 @@ import com.tarehimself.mira.screens.DefaultScreensComponent
 import com.tarehimself.mira.screens.ScreensComponent
 import com.tarehimself.mira.screens.sources.DefaultMangaSearchComponent
 import com.tarehimself.mira.screens.sources.MangaSearchComponent
+import io.github.aakira.napier.DebugAntilog
+import io.github.aakira.napier.Napier
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 
@@ -38,7 +40,7 @@ interface RootComponent {
 
     fun navigateToMangaViewer(sourceId: String,preview: ApiMangaPreview)
 
-    fun navigateToMangaReader(sourceId: String,manga: String,chapterIndex: Int,chapters: List<MangaChapter>)
+    fun navigateToMangaReader(sourceId: String,manga: String,chapterIndex: Int,chapters: List<ApiMangaChapter>)
 
     sealed class Child {
         class ScreensChild(val component: ScreensComponent) : Child()
@@ -53,12 +55,13 @@ interface RootComponent {
 
 class DefaultRootComponent(componentContext: ComponentContext) : RootComponent, ComponentContext by componentContext,KoinComponent {
 
-    private val realmDatabase: RealmRepository by inject<RealmRepository>()
+    private val realmDatabase: RealmRepository by inject()
 
     init {
         lifecycle.subscribe (object : Lifecycle.Callbacks {
             override fun onCreate() {
                 super.onCreate()
+                Napier.base(DebugAntilog())
                 realmDatabase.manageData()
             }
 
@@ -76,6 +79,7 @@ class DefaultRootComponent(componentContext: ComponentContext) : RootComponent, 
         override val cover: String
     ) : Parcelable, MangaPreview
 
+
     private sealed class RootNavConfig : Parcelable {
         @Parcelize
         object Screens : RootNavConfig()
@@ -87,7 +91,7 @@ class DefaultRootComponent(componentContext: ComponentContext) : RootComponent, 
         data class MangaViewer(val sourceId: String,val previewData: PreviewDataParcel) : RootNavConfig()
 
         @Parcelize
-        data class MangaReader(val sourceId: String,val mangaId: String,val chapterIndex: Int,val chapters: List<MangaChapter>) : RootNavConfig()
+        data class MangaReader(val sourceId: String,val mangaId: String,val chapterIndex: Int,val chapters: List<ApiMangaChapter>) : RootNavConfig()
     }
 
     private val navigation = StackNavigation<RootNavConfig>()
@@ -142,7 +146,7 @@ class DefaultRootComponent(componentContext: ComponentContext) : RootComponent, 
     override fun navigateToSearch(sourceId: String,query: String) {
         navigation.push(RootNavConfig.Search(sourceId = sourceId,query=query, stateKey = uuid4().toString()))
     }
-    override fun navigateToMangaReader(sourceId: String,manga: String,chapterIndex: Int,chapters: List<MangaChapter>) {
+    override fun navigateToMangaReader(sourceId: String,manga: String,chapterIndex: Int,chapters: List<ApiMangaChapter>) {
         navigation.push(RootNavConfig.MangaReader(mangaId=manga, sourceId = sourceId,chapterIndex = chapterIndex, chapters = chapters))
     }
 

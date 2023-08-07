@@ -10,7 +10,6 @@ import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import org.koin.core.component.KoinComponent
-import kotlin.jvm.Volatile
 
 @Serializable
 abstract class MangaApiResponse<T>{
@@ -54,6 +53,7 @@ interface MangaData {
     val name: String
     val cover: String
     val status: String
+    val share: String
     val description: String
     val tags: List<String>
     val extras: List<MangaExtras>
@@ -64,6 +64,7 @@ data class ApiMangaData (
     override val id: String,
     override val name: String,
     override val cover: String,
+    override val share: String,
     override val status: String,
     override val description: String,
     override val tags: List<String>,
@@ -73,7 +74,6 @@ data class ApiMangaData (
 interface MangaChapter : Parcelable {
     val id: String
     val name: String
-    val key: Float
     val released: String?
 }
 @Parcelize
@@ -81,16 +81,24 @@ interface MangaChapter : Parcelable {
 data class ApiMangaChapter (
     override val id: String,
     override val name: String,
-    override val key: Float,
     override val released: String? = ""
 ) : MangaChapter
+
+@Serializable
+data class ApiMangaChapterPage (
+    val headers: List<List<String>>,
+    val src: String,
+)
 
 @Serializable
 @Parcelize
 data class MangaSource (
     val id: String,
     val name: String,
+    val nsfw: Boolean,
 ) : Parcelable
+
+
 
 
 
@@ -107,8 +115,8 @@ class MangaChaptersResponse(override val data: List<ApiMangaChapter>?,
                         override val error: String?) : MangaApiResponse<List<ApiMangaChapter>>()
 
 @Serializable
-class MangaChapterResponse(override val data: List<String>?,
-                            override val error: String?) : MangaApiResponse<List<String>>()
+class MangaChapterResponse(override val data: List<ApiMangaChapterPage>?,
+                            override val error: String?) : MangaApiResponse<List<ApiMangaChapterPage>>()
 
 @Serializable
 class MangaSourceResponse(override val data: List<MangaSource>?,
@@ -130,7 +138,7 @@ interface MangaApi: KoinComponent {
 }
 class DefaultMangaApi : MangaApi {
 
-    override val baseUrl = "https://manga.oyintare.dev/api"
+    override val baseUrl = "https://manga.oyintare.dev/api/v1"
 
     override var client = HttpClient {
         install(ContentNegotiation) {

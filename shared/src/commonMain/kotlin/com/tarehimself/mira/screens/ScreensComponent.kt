@@ -7,18 +7,20 @@ import com.arkivanov.decompose.router.stack.StackNavigation
 import com.arkivanov.decompose.router.stack.active
 import com.arkivanov.decompose.router.stack.bringToFront
 import com.arkivanov.decompose.router.stack.childStack
+import com.arkivanov.decompose.router.stack.pop
 import com.arkivanov.decompose.value.MutableValue
 import com.arkivanov.decompose.value.Value
 import com.arkivanov.decompose.value.update
+import com.arkivanov.essenty.backhandler.BackCallback
 import com.arkivanov.essenty.parcelable.Parcelable
 import com.arkivanov.essenty.parcelable.Parcelize
 import com.arkivanov.essenty.statekeeper.consume
 import com.tarehimself.mira.RootComponent
 import com.tarehimself.mira.data.ApiMangaPreview
+import com.tarehimself.mira.screens.library.DefaultLibraryComponent
+import com.tarehimself.mira.screens.library.LibraryComponent
 import com.tarehimself.mira.screens.sources.DefaultSourcesComponent
 import com.tarehimself.mira.screens.sources.SourcesComponent
-import com.tarehimself.mira.ui.search.DefaultLibraryComponent
-import com.tarehimself.mira.ui.search.LibraryComponent
 
 
 interface ScreensComponent {
@@ -48,6 +50,7 @@ interface ScreensComponent {
 
     fun showSources()
 
+    val backCallback: BackCallback
 }
 
 class DefaultScreensComponent(
@@ -77,8 +80,25 @@ class DefaultScreensComponent(
             ScreensComponent.EActiveScreen.Sources -> Config.Sources
         },
         handleBackButton = true,
-        childFactory = ::createChild
+        childFactory = ::createChild,
     )
+
+
+    override val backCallback: BackCallback = BackCallback(isEnabled = true) {
+        navigation.pop {
+            state.update {
+                it.activeScreen = when (stack.active.instance) {
+                    is ScreensComponent.Child.LibraryChild -> ScreensComponent.EActiveScreen.Library
+                    is ScreensComponent.Child.SourcesChild -> ScreensComponent.EActiveScreen.Sources
+                }
+                it
+            }
+        }
+    }
+
+    init {
+        backHandler.register(backCallback)
+    }
 
 
     private fun createChild(config: Config, context: ComponentContext): ScreensComponent.Child =

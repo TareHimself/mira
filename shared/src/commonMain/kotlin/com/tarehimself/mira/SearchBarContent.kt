@@ -1,9 +1,9 @@
 package com.tarehimself.mira
 
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -17,18 +17,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.FocusManager
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import compose.icons.FontAwesomeIcons
 import compose.icons.Octicons
-import compose.icons.fontawesomeicons.Regular
-import compose.icons.fontawesomeicons.Solid
 import compose.icons.octicons.Search24
 
 
@@ -43,6 +38,7 @@ fun SearchBarContent(
     height: Dp = 50.dp
 ) {
 
+    val scrollState = rememberScrollState()
     val query: MutableState<String> = remember { mutableStateOf(value) }
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
@@ -52,8 +48,8 @@ fun SearchBarContent(
             onValueChange = {
                 query.value = it
             },
-            modifier = modifier.fillMaxSize(),
-
+            modifier = modifier.fillMaxSize().horizontalScroll(scrollState),
+            maxLines = 1,
             colors = TextFieldDefaults.textFieldColors(
                 textColor = textColor,
 //                backgroundColor = Color.Transparent,
@@ -71,7 +67,7 @@ fun SearchBarContent(
                 }
             ),
             leadingIcon = {
-                VectorImage(vector = Octicons.Search24, contentDescription = "Search Icon", color = Color.White)
+                VectorImage(vector = Octicons.Search24, contentDescription = "Search Icon", color = textColor)
             }
         )
     }

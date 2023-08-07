@@ -1,9 +1,9 @@
 package com.tarehimself.mira
 
 import com.tarehimself.mira.data.DefaultImageRepository
-import com.tarehimself.mira.data.ImageRepository
 import com.tarehimself.mira.data.DefaultMangaApi
 import com.tarehimself.mira.data.DefaultRealmRepository
+import com.tarehimself.mira.data.ImageRepository
 import com.tarehimself.mira.data.MangaApi
 import com.tarehimself.mira.data.RealmRepository
 import org.koin.core.context.startKoin

@@ -24,8 +24,7 @@ kotlin {
     
     listOf(
         iosX64(),
-        iosArm64(),
-        iosSimulatorArm64()
+        iosArm64()
     ).forEach {
         it.binaries.framework {
             baseName = "shared"
@@ -36,6 +35,7 @@ kotlin {
     sourceSets {
         val ktorVersion = "2.3.2"
         val decomposeVersion = "2.0.0-compose-experimental"
+
         val commonMain by getting {
             dependencies {
                 // Compose
@@ -49,7 +49,7 @@ kotlin {
                 implementation("br.com.devsrsouza.compose.icons:font-awesome:1.1.0")
                 implementation("br.com.devsrsouza.compose.icons:octicons:1.1.0")
 
-                //UUID https://github.com/benasher44/uuid
+                // UUID https://github.com/benasher44/uuid
                 implementation("com.benasher44:uuid:0.7.1")
 
                 // Ktor
@@ -59,10 +59,11 @@ kotlin {
 
                 implementation("media.kamel:kamel-image:0.6.0")
 
-                //coroutines
+                // Coroutines
                 implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.1") // Add to use coroutines with the SDK
                 implementation("io.realm.kotlin:library-base:1.8.0") // Add to only use the local database
 
+                // Decompose
                 implementation("com.arkivanov.decompose:decompose:$decomposeVersion")
                 implementation("com.arkivanov.decompose:extensions-compose-jetbrains:$decomposeVersion")
 
@@ -74,19 +75,39 @@ kotlin {
                 implementation("io.insert-koin:koin-core:3.4.2")
                 implementation("io.insert-koin:koin-compose:1.0.3")
 
-                //Material 3
+                // Material 3
                 implementation(compose.material3)
+
+
+//                // https://github.com/Kamel-Media/Kamel#loading-an-image-resource
+//                implementation("media.kamel:kamel-image:0.7.1")
+
+                // InsetsX https://github.com/mori-atsushi/insetsx
+                implementation("com.moriatsushi.insetsx:insetsx:0.1.0-alpha10")
+
+                // Logging https://github.com/AAkira/Napier
+                implementation("io.github.aakira:napier:2.6.1")
+
+                // Coroutine worker https://github.com/Autodesk/coroutineworker
+                implementation("com.autodesk:coroutineworker:0.8.3")
+
+
+                // hashing https://github.com/goncalossilva/kotlinx-murmurhash
+                implementation("com.goncalossilva:murmurhash:0.4.0")
             }
         }
         val commonTest by getting {
             dependencies {
                 implementation(kotlin("test"))
+
+
             }
         }
 
         val androidMain by getting {
             dependencies {
                 implementation("io.ktor:ktor-client-android:$ktorVersion")
+
             }
         }
 //        val iosMain by creating {
@@ -106,4 +127,7 @@ android {
     defaultConfig {
         minSdk = 24
     }
+}
+dependencies {
+    implementation("com.google.android.material:material:1.9.0")
 }
