@@ -1,2 +1,2 @@
 # Mira
-A Manga App Built using Kotlin and Compose Multiplatform
+A Manga App Built using Compose Multiplatform
