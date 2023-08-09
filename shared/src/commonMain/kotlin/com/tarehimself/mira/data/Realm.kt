@@ -2,14 +2,13 @@ package com.tarehimself.mira.data
 
 
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import com.arkivanov.essenty.parcelable.IgnoredOnParcel
 import com.arkivanov.essenty.parcelable.Parcelize
 import com.benasher44.uuid.uuid4
-import com.tarehimself.mira.common.Cache
 import io.github.aakira.napier.Napier
 import io.realm.kotlin.Realm
 import io.realm.kotlin.RealmConfiguration
@@ -18,16 +17,14 @@ import io.realm.kotlin.ext.realmListOf
 import io.realm.kotlin.ext.realmSetOf
 import io.realm.kotlin.notifications.InitialResults
 import io.realm.kotlin.notifications.UpdatedResults
+import io.realm.kotlin.query.RealmResults
 import io.realm.kotlin.types.RealmList
 import io.realm.kotlin.types.RealmObject
 import io.realm.kotlin.types.RealmSet
 import io.realm.kotlin.types.annotations.Index
 import io.realm.kotlin.types.annotations.PrimaryKey
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.IO
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.launch
 import kotlinx.datetime.Clock
 import org.koin.compose.koinInject
 import org.koin.core.component.KoinComponent
@@ -57,23 +54,6 @@ class StoredChapter() : RealmObject, MangaChapter {
     override var name: String = ""
 
     override var released: String? = null
-}
-
-class StoredCurrentMangaReadInfo() : RealmObject {
-
-    constructor(index: Int, progress: Int, total: Int) : this() {
-        this.index = index
-        this.progress = progress
-        this.total = total
-    }
-
-    @Index
-    var index: Int = 0
-    var progress: Int = 0
-    var total: Int = 0
-
-    @PrimaryKey
-    var uniqueId: ObjectId = ObjectId()
 }
 
 class StoredMangaExtras() : RealmObject, MangaExtras {
@@ -121,7 +101,45 @@ class StoredMangaCategory() : RealmObject {
         this.position = position
     }
 }
+class StoredChapterReadInfo() : RealmObject {
 
+    constructor(index: Int, progress: Int, total: Int) : this() {
+        this.index = index
+        this.progress = progress
+        this.total = total
+    }
+
+    @Index
+    var index: Int = 0
+    var progress: Int = 0
+    var total: Int = 0
+
+    @PrimaryKey
+    var uniqueId: ObjectId = ObjectId()
+}
+class StoredChaptersRead() : RealmObject {
+    @PrimaryKey
+    var uniqueId: String = ""
+
+    @Index
+    var mangaId: String = ""
+
+    @Index
+    var sourceId: String = ""
+
+    var read: RealmSet<Int> = realmSetOf()
+    var current: StoredChapterReadInfo? = null
+
+    constructor(
+        uniqueId: String,
+        mangaId: String,
+        sourceId: String
+    ) : this() {
+        this.uniqueId = uniqueId
+        this.mangaId = mangaId
+        this.sourceId = sourceId
+    }
+}
 class StoredManga() : RealmObject, MangaPreview, MangaData {
 
 
@@ -135,7 +153,7 @@ class StoredManga() : RealmObject, MangaPreview, MangaData {
     ) : this() {
         this.uniqueId = uniqueId
         this.id = id
-        this.source = source
+        this.sourceId = source
         this.name = name
         this.cover = cover
         this.addedAt = addedAt
@@ -149,7 +167,7 @@ class StoredManga() : RealmObject, MangaPreview, MangaData {
     override var id: String = ""
 
     @Index
-    var source: String = ""
+    var sourceId: String = ""
 
     override var share: String = ""
 
@@ -167,10 +185,8 @@ class StoredManga() : RealmObject, MangaPreview, MangaData {
 
     override var tags: RealmList<String> = realmListOf()
     override var extras: RealmList<StoredMangaExtras> = realmListOf()
-    var chapters: RealmList<StoredChapter> = realmListOf()
-    var chaptersRead: RealmSet<Int> = realmSetOf()
-    var readInfo: StoredCurrentMangaReadInfo? = null
 
+    var chapters: RealmList<StoredChapter> = realmListOf()
 
     var categories: RealmSet<String> = realmSetOf()
 }
@@ -179,10 +195,6 @@ class StoredManga() : RealmObject, MangaPreview, MangaData {
 interface RealmRepository : KoinComponent {
 
     val api: MangaApi
-
-    val bookmarks: Cache<String, StoredManga>
-
-    val bookmarksUpdatedCallbacks: ArrayList<() -> Unit>
 
     val realm: Realm
 
@@ -204,6 +216,15 @@ interface RealmRepository : KoinComponent {
 
     fun has(sourceId: String, manga: String): Boolean
 
+    fun getManga(mangaKey: String): RealmResults<StoredManga>
+
+    fun getChaptersRead(mangaKey: String): RealmResults<StoredChaptersRead>
+    fun hasReadInfo(sourceId: String, manga: ApiMangaPreview): Boolean
+
+    fun hasReadInfo(sourceId: String, manga: MangaData): Boolean
+
+    fun hasReadInfo(sourceId: String, manga: String): Boolean
+
     suspend fun bookmark(sourceId: String, mangaData: MangaData, mangaChapters: List<MangaChapter>)
 
     suspend fun bookmark(sourceId: String, mangaPreview: MangaPreview)
@@ -212,7 +233,7 @@ interface RealmRepository : KoinComponent {
 
     suspend fun removeBookmark(sourceId: String, mangaId: String)
 
-    fun subscribeOnBookmarksUpdated(callback: () -> Unit): () -> Unit
+//    fun subscribeOnBookmarksUpdated(callback: () -> Unit): () -> Unit
 
     suspend fun markChapterAsRead(sourceId: String, mangaId: String, chapterIndex: Int)
 
@@ -236,11 +257,7 @@ interface RealmRepository : KoinComponent {
 
 class DefaultRealmRepository : RealmRepository {
 
-    override val api: MangaApi by inject<MangaApi>()
-
-    override val bookmarks = Cache<String, StoredManga>()
-
-    override val bookmarksUpdatedCallbacks: ArrayList<() -> Unit> = ArrayList()
+    override val api: MangaApi by inject()
 
     override val realm: Realm = Realm.open(
         RealmConfiguration.Builder(
@@ -249,8 +266,9 @@ class DefaultRealmRepository : RealmRepository {
                 StoredSources::class,
                 StoredMangaExtras::class,
                 StoredChapter::class,
-                StoredCurrentMangaReadInfo::class,
-                StoredMangaCategory::class
+                StoredChapterReadInfo::class,
+                StoredMangaCategory::class,
+                StoredChaptersRead::class,
             )
         ).deleteRealmIfMigrationNeeded()
 //            .migration(AutomaticSchemaMigration {
@@ -281,70 +299,70 @@ class DefaultRealmRepository : RealmRepository {
     }
 
     override fun manageData() {
-        stopActiveManaging()
-        activeScope = CoroutineScope(Dispatchers.IO)
-        activeScope?.launch {
-            var lastData = listOf<StoredManga>()
-            realm.query(StoredManga::class).asFlow().collect { changes ->
-                when (changes) {
-                    is InitialResults<StoredManga> -> {
-                        for (x in changes.list) {
-                            bookmarks[x.uniqueId] = x
-                        }
-
-                        lastData = changes.list
-
-                        Napier.i(
-                            "Loaded ${bookmarks.keys.size} bookmarks",
-                            tag = "realm"
-                        )
-
-                        for (callback in ArrayList(bookmarksUpdatedCallbacks)) { // ArrayList is to avoid java.util.ConcurrentModificationException, not perfect but works
-                            callback()
-                        }
-                    }
-
-                    is UpdatedResults<StoredManga> -> {
-                        for (deletedIdx in changes.deletions) {
-                            val deleted = lastData[deletedIdx]
-                            Napier.i("Removing ${deleted.uniqueId} from bookmarks", tag = "realm")
-                            bookmarks.remove(deleted.uniqueId)
-                        }
-
-                        for (insertedIdx in changes.insertions) {
-                            val inserted = changes.list[insertedIdx]
-                            Napier.i("Adding ${inserted.uniqueId} to bookmarks", tag = "realm")
-                            bookmarks[inserted.uniqueId] = inserted
-
-                        }
-
-                        for (changedIdx in changes.changes) {
-                            val changed = changes.list[changedIdx]
-                            Napier.i("Updating ${changed.uniqueId} in bookmarks", tag = "realm")
-                            bookmarks[changed.uniqueId] = changed
-                        }
-
-                        lastData = changes.list
-
-                        Napier.i(
-                            "Bookmarks Updated calling ${bookmarksUpdatedCallbacks.size} callbacks",
-                            tag = "realm"
-                        )
-
-                        for (callback in ArrayList(bookmarksUpdatedCallbacks)) { // ArrayList is to avoid java.util.ConcurrentModificationException, not perfect but works
-                            callback()
-                        }
-                    }
-
-                    else -> {}
-                }
-            }
-        }
+//        stopActiveManaging()
+//        activeScope = CoroutineScope(Dispatchers.IO)
+//        activeScope?.launch {
+//            var lastData = listOf<StoredManga>()
+//            realm.query(StoredManga::class).asFlow().collect { changes ->
+//                when (changes) {
+//                    is InitialResults<StoredManga> -> {
+//                        for (x in changes.list) {
+//                            bookmarks[x.uniqueId] = x
+//                        }
+//
+//                        lastData = changes.list
+//
+//                        Napier.i(
+//                            "Loaded ${bookmarks.keys.size} bookmarks",
+//                            tag = "realm"
+//                        )
+//
+//                        for (callback in ArrayList(bookmarksUpdatedCallbacks)) { // ArrayList is to avoid java.util.ConcurrentModificationException, not perfect but works
+//                            callback()
+//                        }
+//                    }
+//
+//                    is UpdatedResults<StoredManga> -> {
+//                        for (deletedIdx in changes.deletions) {
+//                            val deleted = lastData[deletedIdx]
+//                            Napier.i("Removing ${deleted.uniqueId} from bookmarks", tag = "realm")
+//                            bookmarks.remove(deleted.uniqueId)
+//                        }
+//
+//                        for (insertedIdx in changes.insertions) {
+//                            val inserted = changes.list[insertedIdx]
+//                            Napier.i("Adding ${inserted.uniqueId} to bookmarks", tag = "realm")
+//                            bookmarks[inserted.uniqueId] = inserted
+//
+//                        }
+//
+//                        for (changedIdx in changes.changes) {
+//                            val changed = changes.list[changedIdx]
+//                            Napier.i("Updating ${changed.uniqueId} in bookmarks", tag = "realm")
+//                            bookmarks[changed.uniqueId] = changed
+//                        }
+//
+//                        lastData = changes.list
+//
+//                        Napier.i(
+//                            "Bookmarks Updated calling ${bookmarksUpdatedCallbacks.size} callbacks",
+//                            tag = "realm"
+//                        )
+//
+//                        for (callback in ArrayList(bookmarksUpdatedCallbacks)) { // ArrayList is to avoid java.util.ConcurrentModificationException, not perfect but works
+//                            callback()
+//                        }
+//                    }
+//
+//                    else -> {}
+//                }
+//            }
+//        }
     }
 
 
     override fun getMangaKey(manga: StoredManga): String {
-        return "${manga.source}|${manga.id}"
+        return "${manga.sourceId}|${manga.id}"
     }
 
     override fun getMangaKey(sourceId: String, manga: ApiMangaPreview): String {
@@ -360,17 +378,42 @@ class DefaultRealmRepository : RealmRepository {
     }
 
     override fun has(sourceId: String, manga: ApiMangaPreview): Boolean {
-        return bookmarks.contains(getMangaKey(sourceId, manga))
+          return realm.query(StoredManga::class, query = "uniqueId == \$0",getMangaKey(sourceId,manga)).find().firstOrNull() != null
+//        return bookmarks.contains(getMangaKey(sourceId, manga))
     }
 
     override fun has(sourceId: String, manga: MangaData): Boolean {
-        return bookmarks.contains(getMangaKey(sourceId, manga))
+        return realm.query(StoredManga::class, query = "uniqueId == \$0",getMangaKey(sourceId,manga)).find().firstOrNull() != null
+//        return bookmarks.contains(getMangaKey(sourceId, manga))
     }
 
     override fun has(sourceId: String, manga: String): Boolean {
-        return bookmarks.contains(getMangaKey(sourceId, manga))
+        return realm.query(StoredManga::class, query = "uniqueId == \$0",getMangaKey(sourceId,manga)).find().firstOrNull() != null
+//        return bookmarks.contains(getMangaKey(sourceId, manga))
     }
 
+    override fun hasReadInfo(sourceId: String, manga: ApiMangaPreview): Boolean {
+        return realm.query(StoredChaptersRead::class, query = "uniqueId == \$0",getMangaKey(sourceId,manga)).find().firstOrNull() != null
+//        return bookmarks.contains(getMangaKey(sourceId, manga))
+    }
+
+    override fun hasReadInfo(sourceId: String, manga: MangaData): Boolean {
+        return realm.query(StoredChaptersRead::class, query = "uniqueId == \$0",getMangaKey(sourceId,manga)).find().firstOrNull() != null
+//        return bookmarks.contains(getMangaKey(sourceId, manga))
+    }
+
+    override fun hasReadInfo(sourceId: String, manga: String): Boolean {
+        return realm.query(StoredChaptersRead::class, query = "uniqueId == \$0",getMangaKey(sourceId,manga)).find().firstOrNull() != null
+//        return bookmarks.contains(getMangaKey(sourceId, manga))
+    }
+
+    override fun getManga(mangaKey: String): RealmResults<StoredManga> {
+        return realm.query(StoredManga::class, query = "uniqueId == \$0",mangaKey).find()
+    }
+
+    override fun getChaptersRead(mangaKey: String): RealmResults<StoredChaptersRead> {
+        return realm.query(StoredChaptersRead::class, query = "uniqueId == \$0",mangaKey).find()
+    }
     override suspend fun bookmark(
         sourceId: String,
         mangaData: MangaData,
@@ -382,8 +425,9 @@ class DefaultRealmRepository : RealmRepository {
         }
 
         realm.write {
+            val uniqueId = getMangaKey(sourceId, mangaData.id)
             val newItem = StoredManga(
-                uniqueId = getMangaKey(sourceId, mangaData.id),
+                uniqueId = uniqueId,
                 source = sourceId,
                 id = mangaData.id,
                 name = mangaData.name,
@@ -401,10 +445,10 @@ class DefaultRealmRepository : RealmRepository {
                         value = it.value
                     )
                 })
-                chapters.addAll(mangaChapters.map {
+                chapters.addAll(mangaChapters.map { chapter ->
                     StoredChapter(
-                        id = it.id,
-                        name = it.name, released = it.released
+                        id = chapter.id,
+                        name = chapter.name, released = chapter.released
                     )
                 })
                 share = mangaData.share
@@ -447,16 +491,16 @@ class DefaultRealmRepository : RealmRepository {
         val uniqueId = getMangaKey(sourceId, mangaId)
 
         realm.write {
-            val result = query<StoredManga>("uniqueId == $0", uniqueId).find().firstOrNull()
-            result?.chapters = realmListOf()
-            result?.chapters?.addAll(mangaChapters.map {
-                StoredChapter(
-                    id = it.id,
-                    name = it.name, released = it.released
-                )
-            })
 
-
+            query<StoredManga>("uniqueId == $0", uniqueId).find().firstOrNull()?.let {
+                it.chapters = realmListOf()
+                it.chapters.addAll(mangaChapters.map { chapter ->
+                    StoredChapter(
+                        id = chapter.id,
+                        name = chapter.name, released = chapter.released
+                    )
+                })
+            }
         }
     }
 
@@ -496,12 +540,12 @@ class DefaultRealmRepository : RealmRepository {
         }
     }
 
-    override fun subscribeOnBookmarksUpdated(callback: () -> Unit): () -> Unit {
-        bookmarksUpdatedCallbacks.add(callback)
-        return {
-            bookmarksUpdatedCallbacks.remove(callback)
-        }
-    }
+//    override fun subscribeOnBookmarksUpdated(callback: () -> Unit): () -> Unit {
+//        bookmarksUpdatedCallbacks.add(callback)
+//        return {
+//            bookmarksUpdatedCallbacks.remove(callback)
+//        }
+//    }
 
     override suspend fun updateMangaReadInfo(
         sourceId: String,
@@ -511,41 +555,47 @@ class DefaultRealmRepository : RealmRepository {
         total: Int
     ) {
         realm.write {
-            val targetManga =
-                query<StoredManga>("uniqueId == $0", getMangaKey(sourceId, mangaId)).find()
-                    .firstOrNull()
-            if (targetManga != null) {
-                if (targetManga.readInfo == null) {
-                    targetManga.readInfo = StoredCurrentMangaReadInfo(
+            val uniqueId = getMangaKey(sourceId, mangaId)
+            query<StoredChaptersRead>("uniqueId == $0", uniqueId).find().firstOrNull()?.let {
+                when(val readInfo = it.current){
+                    is StoredChapterReadInfo -> {
+                        readInfo.index = chapterIndex
+                        readInfo.progress = progress
+                        readInfo.total = total
+                    }
+                    else -> {
+                        it.current = StoredChapterReadInfo(
+                            index = chapterIndex,
+                            progress = progress,
+                            total = total
+                        )
+                    }
+                }
+            } ?: run{
+                copyToRealm(StoredChaptersRead(uniqueId,mangaId,sourceId).apply {
+                    current = StoredChapterReadInfo(
                         index = chapterIndex,
                         progress = progress,
                         total = total
                     )
-                } else {
-                    targetManga.readInfo!!.index = chapterIndex
-                    targetManga.readInfo!!.progress = progress
-                    targetManga.readInfo!!.total = total
-                }
+                })
             }
         }
     }
 
     override suspend fun markChapterAsRead(sourceId: String, mangaId: String, chapterIndex: Int) {
 
-        if (!has(sourceId, mangaId)) {
-            return
-        }
-
         val uniqueId = getMangaKey(sourceId, mangaId)
 
-        if (bookmarks[uniqueId]?.chaptersRead?.contains(chapterIndex) == true) {
-            return
-        }
-
         realm.write {
-            val targetItem = query<StoredManga>("uniqueId == $0", uniqueId).find().firstOrNull()
-            if (targetItem?.chaptersRead?.add(chapterIndex) == true) {
-                Napier.i("Marked chapter $chapterIndex in manga $uniqueId as read", tag = "realm")
+            query<StoredChaptersRead>("uniqueId == $0", uniqueId).find().firstOrNull()?.let {
+                if (it.read.add(chapterIndex)) {
+                    Napier.i("Marked chapter $chapterIndex in manga $uniqueId as read", tag = "realm")
+                }
+            } ?: run {
+                copyToRealm(StoredChaptersRead(uniqueId,mangaId,sourceId).apply {
+                    read.add(chapterIndex)
+                })
             }
         }
     }
@@ -567,15 +617,119 @@ fun <T> subscribeBookmarksUpdate(
 ): MutableState<T> {
     val data: MutableState<T> = remember { mutableStateOf(getData(realmRepository)) }
 
-    DisposableEffect(key) {
-        val unsubscribe = realmRepository.subscribeOnBookmarksUpdated {
-            data.value = getData(realmRepository)
-        }
+//    DisposableEffect(key) {
+//        val unsubscribe = realmRepository.subscribeOnBookmarksUpdated {
+//            data.value = getData(realmRepository)
+//        }
+//
+//        onDispose {
+//            unsubscribe()
+//        }
+//    }
 
-        onDispose {
-            unsubscribe()
+    return data
+}
+
+@Composable
+fun rememberReadInfo(sourceId: String,mangaId: String,realmRepository: RealmRepository = koinInject()): StoredChaptersRead? {
+
+    val data = remember(sourceId,mangaId) { mutableStateOf<StoredChaptersRead?>(null) }
+
+    LaunchedEffect(sourceId,mangaId){
+        realmRepository.getChaptersRead(realmRepository.getMangaKey(sourceId,mangaId)).asFlow().collect{changes ->
+            when (changes) {
+                is InitialResults<StoredChaptersRead> -> {
+                    data.value = changes.list.firstOrNull()
+
+                    Napier.i(
+                        "Updated Read Info For Manga",
+                        tag = "realm"
+                    )
+                }
+
+                is UpdatedResults<StoredChaptersRead> -> {
+                    if(changes.deletions.isNotEmpty()){
+                        data.value = null
+                        Napier.i("Deleting Read Info For Manga", tag = "realm")
+                    }
+
+                    if(changes.insertions.isNotEmpty() ||changes.changes.isNotEmpty()){
+                        data.value = changes.list.firstOrNull()
+                        Napier.i("Updating Read Info For Manga", tag = "realm")
+                    }
+                }
+
+                else -> {}
+            }
         }
     }
 
-    return data
+    return data.value
+}
+
+@Composable
+fun rememberMangaInfo(sourceId: String,mangaId: String,realmRepository: RealmRepository = koinInject()): StoredManga? {
+
+    val data = remember(sourceId,mangaId) { mutableStateOf<StoredManga?>(null) }
+
+    LaunchedEffect(sourceId,mangaId){
+        realmRepository.getManga(realmRepository.getMangaKey(sourceId,mangaId)).asFlow().collect{changes ->
+            when (changes) {
+                is InitialResults<StoredManga> -> {
+                    data.value = changes.list.firstOrNull()
+
+                    Napier.i(
+                        "Updated Info For Manga",
+                        tag = "realm"
+                    )
+                }
+
+                is UpdatedResults<StoredManga> -> {
+                    if(changes.deletions.isNotEmpty()){
+                        data.value = null
+                        Napier.i("Deleting Info For Manga", tag = "realm")
+                    }
+
+                    if(changes.insertions.isNotEmpty() ||changes.changes.isNotEmpty()){
+                        data.value = changes.list.firstOrNull()
+                        Napier.i("Updating Info For Manga", tag = "realm")
+                    }
+                }
+
+                else -> {}
+            }
+        }
+    }
+
+    return data.value
+}
+
+@Composable
+fun rememberIsBookmarked(sourceId: String,mangaId: String,realmRepository: RealmRepository = koinInject()): Boolean {
+
+    val data = remember(sourceId,mangaId) { mutableStateOf(realmRepository.has(sourceId,mangaId)) }
+
+    LaunchedEffect(sourceId,mangaId){
+        realmRepository.getManga(realmRepository.getMangaKey(sourceId,mangaId)).asFlow().collect{changes ->
+            when (changes) {
+                is InitialResults<StoredManga> -> {
+                    data.value = changes.list.firstOrNull() != null
+                }
+
+                is UpdatedResults<StoredManga> -> {
+                    if(changes.deletions.isNotEmpty()){
+                        data.value = false
+                    }
+
+                    if(changes.insertions.isNotEmpty() ||changes.changes.isNotEmpty()){
+                        data.value = true
+                    }
+                }
+
+                else -> {}
+            }
+        }
+    }
+
+    return data.value
 }

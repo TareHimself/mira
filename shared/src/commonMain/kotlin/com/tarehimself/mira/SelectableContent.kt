@@ -5,6 +5,8 @@ import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.calculateEndPadding
+import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -174,9 +176,10 @@ fun <T> SelectableContent(
         backgroundColor = Color.Transparent,
         scaffoldState = state.scaffoldState,
     ) {padding ->
-        Box(modifier = Modifier.padding(padding)) {
-            content()
-
+        Box(){
+            Box(modifier = Modifier.padding(top = padding.calculateTopPadding(), bottom = padding.calculateBottomPadding() + (sheetDesiredHeightDp * (sheetVisibilityAlpha)))) {
+                content()
+            }
             // Bottom sheet
             Box(modifier = Modifier.fillMaxWidth().align(Alignment.BottomCenter)
                 .offset(y = sheetDesiredHeightDp * (1.0f - sheetVisibilityAlpha)).clip(
@@ -189,5 +192,6 @@ fun <T> SelectableContent(
                 }
             }
         }
+
     }
 }

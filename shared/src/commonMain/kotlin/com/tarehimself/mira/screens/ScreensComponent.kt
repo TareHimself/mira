@@ -112,7 +112,7 @@ class DefaultScreensComponent(
             componentContext = context,
             onMangaSelected = {
                 root.navigateToMangaViewer(
-                    sourceId = it.source,
+                    sourceId = it.sourceId,
                     preview = ApiMangaPreview(id = it.id, name = it.name, cover = it.cover)
                 )
             }

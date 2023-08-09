@@ -27,8 +27,9 @@ import com.tarehimself.mira.Pressable
 import com.tarehimself.mira.VectorImage
 import com.tarehimself.mira.common.pxToDp
 import com.tarehimself.mira.data.MangaChapter
+import com.tarehimself.mira.data.StoredChaptersRead
 import com.tarehimself.mira.data.StoredManga
-import com.tarehimself.mira.data.subscribeBookmarksUpdate
+import com.tarehimself.mira.data.rememberReadInfo
 import compose.icons.Octicons
 import compose.icons.octicons.Download16
 
@@ -52,16 +53,9 @@ fun MangaChapterContent(
 
     val itemWidthDp = itemWidth.pxToDp()
 
-    val chapterHasBeenRead by subscribeBookmarksUpdate(index, getData = {
-        if (it.has(sourceId, mangaId)) {
-            it.bookmarks[it.getMangaKey(
-                sourceId,
-                mangaId
-            )]?.chaptersRead?.contains(total - 1 - index) == true
-        } else {
-            false
-        }
-    })
+    val readInfo = rememberReadInfo(sourceId,mangaId)
+
+    val hasBeenRead = readInfo?.read?.contains(total - 1 - index) == true
 
     val backgroundColor by animateColorAsState(
         when (isSelected) {
@@ -94,7 +88,7 @@ fun MangaChapterContent(
                         fontSize = 15.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        color = when (chapterHasBeenRead && !isSelected) {
+                        color = when (hasBeenRead && !isSelected) {
                             true -> Color.DarkGray
                             else -> Color.White
                         }
@@ -110,10 +104,10 @@ fun MangaChapterContent(
                             overflow = TextOverflow.Ellipsis,
                             color = Color.DarkGray
                         )
-                        when(val mangaData = component.state.value.data){
-                            is StoredManga -> {
+                        when(readInfo){
+                            is StoredChaptersRead -> {
 
-                                if(mangaData.readInfo != null && (component.state.value.chapters.lastIndex - mangaData.readInfo!!.index) == index){
+                                if((component.state.value.chapters.lastIndex - readInfo.current!!.index) == index){
                                     Text(
                                         "  |  ",
                                         fontSize = 10.sp,
@@ -122,7 +116,7 @@ fun MangaChapterContent(
                                         color = Color.DarkGray
                                     )
                                     Text(
-                                        "Page ${mangaData.readInfo!!.progress}",
+                                        "Page ${readInfo.current!!.progress}",
                                         fontSize = 10.sp,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,

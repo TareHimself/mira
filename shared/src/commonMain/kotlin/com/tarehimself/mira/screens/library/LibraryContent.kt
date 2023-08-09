@@ -31,16 +31,21 @@ import androidx.compose.ui.unit.dp
 import com.arkivanov.decompose.extensions.compose.jetbrains.subscribeAsState
 import com.tarehimself.mira.SearchBarContent
 import com.tarehimself.mira.SelectableContent
+import com.tarehimself.mira.data.RealmRepository
+import com.tarehimself.mira.data.StoredManga
 import com.tarehimself.mira.rememberSelectableContentState
 import com.tarehimself.mira.screens.MangaPreviewContent
 import io.github.aakira.napier.Napier
+import io.realm.kotlin.notifications.InitialResults
+import io.realm.kotlin.notifications.UpdatedResults
 import kotlinx.coroutines.launch
+import org.koin.compose.koinInject
 
 
 @OptIn(ExperimentalMaterialApi::class, ExperimentalFoundationApi::class)
 @Composable
-fun LibraryContent(component: LibraryComponent) {
-    val state by component.state.subscribeAsState(neverEqualPolicy())
+fun LibraryContent(component: LibraryComponent, realmRepository: RealmRepository = koinInject()) {
+    val bookmarks = remember { mutableStateListOf<StoredManga>() }
 
     var searchQuery by remember { mutableStateOf("") }
 
@@ -51,8 +56,51 @@ fun LibraryContent(component: LibraryComponent) {
     val coroutineScope = rememberCoroutineScope()
 
     val testList = remember { mutableStateListOf(1,2,3) }
+
     LaunchedEffect(Unit) {
-        component.loadLibrary()
+//        component.loadLibrary()
+        var lastData = listOf<StoredManga>()
+        realmRepository.realm.query(StoredManga::class).asFlow().collect { changes ->
+                when (changes) {
+                    is InitialResults<StoredManga> -> {
+                        for (x in changes.list) {
+                            bookmarks.add(x)
+                        }
+
+                        lastData = changes.list
+
+                        Napier.i(
+                            "Loaded ${bookmarks.size} bookmarks",
+                            tag = "realm"
+                        )
+                    }
+
+                    is UpdatedResults<StoredManga> -> {
+                        for (deletedIdx in changes.deletions) {
+                            val deleted = lastData[deletedIdx]
+                            Napier.i("Removing ${deleted.uniqueId} from bookmarks", tag = "realm")
+                            bookmarks.remove(deleted)
+                        }
+
+                        for (insertedIdx in changes.insertions) {
+                            val inserted = changes.list[insertedIdx]
+                            Napier.i("Adding ${inserted.uniqueId} to bookmarks", tag = "realm")
+                            bookmarks.add(inserted)
+
+                        }
+
+                        for (changedIdx in changes.changes) {
+                            val changed = changes.list[changedIdx]
+                            Napier.i("Updating ${changed.uniqueId} in bookmarks", tag = "realm")
+                            bookmarks[bookmarks.indexOfFirst { it.uniqueId == changed.uniqueId }] = changed
+                        }
+
+                        lastData = changes.list
+                    }
+
+                    else -> {}
+                }
+            }
     }
 
     LaunchedEffect(pagerState.currentPage) {
@@ -94,8 +142,8 @@ fun LibraryContent(component: LibraryComponent) {
             ) {
 
                 items((when (searchQuery.isEmpty()) {
-                    true -> state.library
-                    else -> state.library.filter {
+                    true -> bookmarks
+                    else -> bookmarks.filter {
                         it.name.contains(
                             searchQuery,
                             true
@@ -105,7 +153,7 @@ fun LibraryContent(component: LibraryComponent) {
                     it.hashCode()
                 }) { item ->
 
-                    MangaPreviewContent(item.source,
+                    MangaPreviewContent(item.sourceId,
                         item, onPressed = {
                             Napier.d { "Is Selected ${selectableContentState.isSelected(it.uniqueId)}" }
                             if (selectableContentState.isExpanding || selectableContentState.isExpanded) {

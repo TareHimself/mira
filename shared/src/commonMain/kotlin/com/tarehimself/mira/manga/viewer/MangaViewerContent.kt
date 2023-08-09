@@ -65,6 +65,8 @@ import com.tarehimself.mira.common.networkImagePainter
 import com.tarehimself.mira.common.pxToDp
 import com.tarehimself.mira.data.MangaData
 import com.tarehimself.mira.data.StoredManga
+import com.tarehimself.mira.data.rememberIsBookmarked
+import com.tarehimself.mira.data.rememberReadInfo
 import com.tarehimself.mira.rememberSelectableContentState
 import compose.icons.FontAwesomeIcons
 import compose.icons.Octicons
@@ -85,6 +87,10 @@ import kotlinx.coroutines.launch
 @Composable
 fun MangaViewerContent(component: MangaViewerComponent) {
     val state by component.state.subscribeAsState(neverEqualPolicy())
+
+    val readInfo = rememberReadInfo(state.sourceId,state.preview.id)
+
+    val isBookmarked = rememberIsBookmarked(state.sourceId,state.preview.id)
 
     val verticalPadding by remember { mutableStateOf(5.dp) }
 
@@ -124,10 +130,10 @@ fun MangaViewerContent(component: MangaViewerComponent) {
         rememberPullRefreshState(state.isLoadingData || state.isLoadingChapters, {
             CoroutineScope(Dispatchers.Default).launch {
                 async {
-                    component.loadMangaData()
+                    component.loadMangaData(true)
                 }
                 async {
-                    component.loadChapters()
+                    component.loadChapters(true)
                 }
 
             }
@@ -159,17 +165,6 @@ fun MangaViewerContent(component: MangaViewerComponent) {
 
     val descriptionFontSize = remember { 15.sp }
 
-    LaunchedEffect(state.preview.id) {
-        async {
-            component.loadMangaData()
-        }
-        if (state.chapters.isEmpty() || (state.data is StoredManga && (state.data as StoredManga).chaptersRead.size == state.chapters.size)) {
-            async {
-                component.loadChapters()
-            }
-        }
-    }
-
     LaunchedEffect(Unit) {
         snapshotFlow { scrollState.layoutInfo }.collect {
 
@@ -186,6 +181,22 @@ fun MangaViewerContent(component: MangaViewerComponent) {
             }
         }
     }
+
+    LaunchedEffect(state.preview.id) {
+        if(state.data !is StoredManga){
+            async {
+                component.loadMangaData()
+            }
+        }
+
+        if (state.chapters.isEmpty()) {
+            async {
+                component.loadChapters()
+            }
+        }
+    }
+
+
 
     Box(modifier = Modifier.fillMaxSize()) {
 
@@ -345,7 +356,7 @@ fun MangaViewerContent(component: MangaViewerComponent) {
 
                             state.data?.let {
                                 Pressable(onClick = {
-                                    if (state.isBookmarked) {
+                                    if (isBookmarked) {
                                         coroutineScope.launch {
                                             component.unBookmark()
                                         }
@@ -362,7 +373,7 @@ fun MangaViewerContent(component: MangaViewerComponent) {
                                     ) {
                                         Spacer(modifier = Modifier.height(5.dp))
                                         VectorImage(
-                                            vector = when (state.isBookmarked) {
+                                            vector = when (isBookmarked) {
                                                 true -> FontAwesomeIcons.Solid.Bookmark
                                                 else -> FontAwesomeIcons.Regular.Bookmark
                                             },
@@ -485,7 +496,7 @@ fun MangaViewerContent(component: MangaViewerComponent) {
                             if (state.chapters.isNotEmpty()) {
                                 val targetFirstChapter = when (val curData = state.data) {
                                     is StoredManga -> {
-                                        state.chapters.lastIndex - (curData.readInfo?.index ?: 0)
+                                        state.chapters.lastIndex - (readInfo?.current?.index ?: 0)
                                     }
 
                                     else -> {
@@ -556,7 +567,7 @@ fun MangaViewerContent(component: MangaViewerComponent) {
                             })
                     }
                     item {
-                        Spacer(modifier = Modifier.height(80.dp + 30.dp))
+                        Spacer(modifier = Modifier.height(20.dp))
                     }
                 }
                 PullRefreshIndicator(

@@ -94,10 +94,10 @@ class DefaultMangaReaderComponent(
             initialChapterIndex = initialChapterIndex,
             chapters = when (realmDatabase.has(sourceId, mangaId)) {
                 true -> {
-                    realmDatabase.bookmarks[realmDatabase.getMangaKey(
+                    realmDatabase.getManga(realmDatabase.getMangaKey(
                         sourceId,
                         mangaId
-                    )]!!.chapters
+                    )).first().chapters
                 }
 
                 else -> {

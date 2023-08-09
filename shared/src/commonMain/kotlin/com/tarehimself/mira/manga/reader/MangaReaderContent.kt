@@ -111,10 +111,10 @@ fun MangaReaderContent(component: MangaReaderComponent) {
 
                     scrollState.scrollToItem(
                         when (val scrollTarget =
-                            component.realmDatabase.bookmarks[component.realmDatabase.getMangaKey(
+                            component.realmDatabase.getChaptersRead(component.realmDatabase.getMangaKey(
                                 state.sourceId,
                                 state.mangaId
-                            )]?.readInfo) {
+                            )).firstOrNull()?.current) {
                             null -> {
                                 1
                             }

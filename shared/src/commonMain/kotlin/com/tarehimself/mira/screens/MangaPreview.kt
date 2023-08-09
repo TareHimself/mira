@@ -44,7 +44,10 @@ import com.tarehimself.mira.common.mangaCoverPainter
 import com.tarehimself.mira.data.ApiMangaPreview
 import com.tarehimself.mira.data.MangaPreview
 import com.tarehimself.mira.data.RealmRepository
+import com.tarehimself.mira.data.StoredChaptersRead
 import com.tarehimself.mira.data.StoredManga
+import com.tarehimself.mira.data.rememberIsBookmarked
+import com.tarehimself.mira.data.rememberReadInfo
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 
@@ -80,13 +83,14 @@ fun <T> MangaPreviewContent(
         )
     }
 
-    var isBookmarked by remember(sourceId, data.id) {
-        mutableStateOf(
-            realmRepository.has(
-                sourceId,
-                data.id
-            )
-        )
+    var isBookmarked = rememberIsBookmarked(sourceId,data.id)
+
+    val readInfo = if(data is StoredManga){
+        rememberReadInfo(sourceId, data.id)
+    }
+    else
+    {
+        null
     }
 
     val brush = Brush.verticalGradient(
@@ -106,21 +110,6 @@ fun <T> MangaPreviewContent(
         selectedState?.let {
             snapshotFlow { it.toList() }.collect {
                 isSelected = it.contains(realmRepository.getMangaKey(sourceId, data.id))
-            }
-        }
-    }
-    DisposableEffect(sourceId, data.id, isBookmarked) {
-        if (isBookmarked && data !is StoredManga) {
-            val unsubscribe = realmRepository.subscribeOnBookmarksUpdated {
-                isBookmarked = realmRepository.has(sourceId, data.id)
-            }
-
-            onDispose {
-                unsubscribe()
-            }
-        } else {
-            onDispose {
-
             }
         }
     }
@@ -204,8 +193,8 @@ fun <T> MangaPreviewContent(
                         }
                     }
                 }
-                if (data is StoredManga) {
-                    if (data.chapters.size - data.chaptersRead.size != 0) {
+                if (data is StoredManga && readInfo is StoredChaptersRead) {
+                    if (data.chapters.size - readInfo.read.size != 0) {
                         Surface(
                             color = Color.Black.copy(alpha = 0.5f), modifier = Modifier.clip(
                                 shape = RoundedCornerShape(
@@ -214,7 +203,7 @@ fun <T> MangaPreviewContent(
                             )
                         ) {
                             Text(
-                                "${data.chapters.size - data.chaptersRead.size}",
+                                "${data.chapters.size - readInfo.read.size}",
                                 color = Color.White,
                                 modifier = Modifier.padding(5.dp),
                                 fontSize = 13.sp,
