@@ -1,10 +1,15 @@
 package com.tarehimself.mira.manga.viewer
 
+import DropdownMenu
+import DropdownMenuItem
 import ShareBridge
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,7 +17,6 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -24,14 +28,13 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.ExperimentalMaterialApi
-import androidx.compose.material.MaterialTheme
 import androidx.compose.material.ModalBottomSheetDefaults
-import androidx.compose.material.Surface
-import androidx.compose.material.Text
 import androidx.compose.material.pullrefresh.PullRefreshIndicator
 import androidx.compose.material.pullrefresh.pullRefresh
 import androidx.compose.material.pullrefresh.rememberPullRefreshState
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -47,58 +50,104 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.arkivanov.decompose.extensions.compose.jetbrains.subscribeAsState
 import com.tarehimself.mira.Pressable
-import com.tarehimself.mira.SelectableContent
 import com.tarehimself.mira.VectorImage
-import com.tarehimself.mira.common.AsyncImage
-import com.tarehimself.mira.common.Constants
-import com.tarehimself.mira.common.networkImagePainter
 import com.tarehimself.mira.common.pxToDp
+import com.tarehimself.mira.common.ui.AsyncImage
+import com.tarehimself.mira.common.ui.CategorySelectContent
+import com.tarehimself.mira.common.ui.SelectableContent
+import com.tarehimself.mira.common.ui.rememberCategorySelectContentState
+import com.tarehimself.mira.common.ui.rememberNetworkImagePainter
+import com.tarehimself.mira.common.ui.rememberSelectableContentState
+import com.tarehimself.mira.data.ChapterDownloader
 import com.tarehimself.mira.data.MangaData
 import com.tarehimself.mira.data.StoredManga
+import com.tarehimself.mira.data.rememberCategories
 import com.tarehimself.mira.data.rememberIsBookmarked
 import com.tarehimself.mira.data.rememberReadInfo
-import com.tarehimself.mira.rememberSelectableContentState
+import compose.icons.EvaIcons
 import compose.icons.FontAwesomeIcons
 import compose.icons.Octicons
+import compose.icons.evaicons.Fill
+import compose.icons.evaicons.Outline
+import compose.icons.evaicons.fill.Download
+import compose.icons.evaicons.outline.DoneAll
 import compose.icons.fontawesomeicons.Regular
 import compose.icons.fontawesomeicons.Solid
 import compose.icons.fontawesomeicons.regular.Bookmark
+import compose.icons.fontawesomeicons.solid.ArrowDown
 import compose.icons.fontawesomeicons.solid.Bookmark
-import compose.icons.octicons.Download16
+import compose.icons.fontawesomeicons.solid.Tags
 import compose.icons.octicons.Share24
 import compose.icons.octicons.X16
+import io.github.aakira.napier.Napier
+import io.ktor.client.request.header
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
+import org.koin.compose.koinInject
 
-
-@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterialApi::class)
 @Composable
-fun MangaViewerContent(component: MangaViewerComponent) {
+fun MangaViewerContentMainButton(name: String, icon: ImageVector, onClick: () -> Unit = {}) {
+
+    Pressable(onClick = onClick, modifier = Modifier.width(100.dp).clip(RoundedCornerShape(5.dp))) {
+        Column(
+            verticalArrangement = Arrangement.SpaceBetween,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Spacer(modifier = Modifier.height(5.dp))
+            VectorImage(
+                vector = icon,
+                contentDescription = "$name Icon",
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(modifier = Modifier.height(5.dp))
+            Text(name, fontSize = 13.sp)
+            Spacer(modifier = Modifier.height(5.dp))
+        }
+    }
+}
+
+@OptIn(
+    ExperimentalLayoutApi::class, ExperimentalMaterialApi::class,
+    ExperimentalFoundationApi::class
+)
+@Composable
+fun MangaViewerContent(
+    component: MangaViewerComponent,
+    chapterDownloader: ChapterDownloader = koinInject()
+) {
     val state by component.state.subscribeAsState(neverEqualPolicy())
 
-    val readInfo = rememberReadInfo(state.sourceId,state.preview.id)
+    val readInfo = rememberReadInfo(state.sourceId, state.preview.id)
 
-    val isBookmarked = rememberIsBookmarked(state.sourceId,state.preview.id)
+    val isBookmarked by rememberIsBookmarked(state.sourceId, state.preview.id)
 
-    val verticalPadding by remember { mutableStateOf(5.dp) }
-
-    val horizontalPadding by remember { mutableStateOf(20.dp) }
-
-    val mainContainerSize = remember { mutableStateOf(IntSize.Zero) }
+    val selectableContentState = rememberSelectableContentState<Int>()
 
     val scrollState = rememberLazyListState()
+
+    val categorySelectState = rememberCategorySelectContentState()
+
+    val allCategories by rememberCategories()
+
+    val verticalPadding = remember { 5.dp }
+
+    val horizontalPadding = remember { 20.dp }
+
+    var backgroundImageHeight by remember { mutableStateOf(IntSize.Zero) }
 
     var minDescriptionHeight by remember { mutableStateOf(0) }
 
@@ -110,10 +159,9 @@ fun MangaViewerContent(component: MangaViewerComponent) {
 
     val willDescriptionOverflow = remember { desiredDescriptionHeight > minDescriptionHeight }
 
-    val selectableContentState = rememberSelectableContentState<Int>()
-
     var isDescriptionOpen by remember { mutableStateOf(false) }
 
+    val clipboardManager = LocalClipboardManager.current
     val descriptionHeight by animateDpAsState(
         if (!willDescriptionOverflow) {
             desiredDescriptionHeightDp
@@ -129,10 +177,11 @@ fun MangaViewerContent(component: MangaViewerComponent) {
     val pullRefreshState =
         rememberPullRefreshState(state.isLoadingData || state.isLoadingChapters, {
             CoroutineScope(Dispatchers.Default).launch {
-                async {
+                launch {
                     component.loadMangaData(true)
                 }
-                async {
+
+                launch {
                     component.loadChapters(true)
                 }
 
@@ -142,32 +191,38 @@ fun MangaViewerContent(component: MangaViewerComponent) {
 
     var backgroundAlpha by remember { mutableStateOf(0.0f) }
 
-    val backgroundBrush = Brush.verticalGradient(
-        colors = listOf(
-            Color.Transparent,
-            MaterialTheme.colors.background.copy(alpha = .7f),
-            MaterialTheme.colors.background
-        ), startY = (0).toFloat(), endY = mainContainerSize.value.height.toFloat() / 3
-    )
+    val backgroundBrushColor = MaterialTheme.colorScheme.background
 
-    val descriptionBrush = Brush.verticalGradient(
-        listOf(
-            Color.Transparent,
-            MaterialTheme.colors.background.copy(alpha = 0.7f),
-            MaterialTheme.colors.background.copy(alpha = 0.9f)
+    val backgroundBrush = remember(backgroundImageHeight.height) {
+        Brush.verticalGradient(
+            colors = listOf(
+                backgroundBrushColor.copy(alpha = .5f),
+                backgroundBrushColor.copy(alpha = .7f),
+                backgroundBrushColor
+            ), endY = backgroundImageHeight.height.toFloat() / 1.5f
         )
-    )
+    }
 
-    val coroutineScope = rememberCoroutineScope()
+    val descriptionBrush = remember(backgroundBrushColor) {
+        Brush.verticalGradient(
+            listOf(
+                Color.Transparent,
+                backgroundBrushColor.copy(alpha = 0.7f),
+                backgroundBrushColor.copy(alpha = 0.9f)
+            )
+        )
+    }
 
-    val commonModifier =
+    val commonModifier = remember(verticalPadding, horizontalPadding) {
         Modifier.padding(vertical = verticalPadding, horizontal = horizontalPadding)
+    }
 
     val descriptionFontSize = remember { 15.sp }
 
+    val coroutineScope = rememberCoroutineScope()
+
     LaunchedEffect(Unit) {
         snapshotFlow { scrollState.layoutInfo }.collect {
-
             if (it.visibleItemsInfo.isNotEmpty()) {
                 val firstItem = it.visibleItemsInfo.first()
                 backgroundAlpha = if (firstItem.index != 0) {
@@ -182,15 +237,15 @@ fun MangaViewerContent(component: MangaViewerComponent) {
         }
     }
 
-    LaunchedEffect(state.preview.id) {
-        if(state.data !is StoredManga){
-            async {
+    LaunchedEffect(Unit) {
+        launch {
+            if (state.data !is StoredManga) {
                 component.loadMangaData()
             }
         }
 
-        if (state.chapters.isEmpty()) {
-            async {
+        launch {
+            if (state.chapters.isEmpty()) {
                 component.loadChapters()
             }
         }
@@ -217,364 +272,517 @@ fun MangaViewerContent(component: MangaViewerComponent) {
             }
         }
 
-        Box(modifier = Modifier.fillMaxSize().alpha(backgroundAlpha)) {
+        // Big background image
+        Box(
+            modifier = Modifier.fillMaxWidth().fillMaxHeight(0.5f).alpha(backgroundAlpha)
+                .onGloballyPositioned {
+                    backgroundImageHeight = it.size
+                }) {
 
-            AsyncImage(
-                painter = networkImagePainter(when (state.data != null) {
+            val targetCover = remember(state.data) {
+                when (state.data != null) {
                     true -> state.data!!.cover
                     false -> state.preview.cover
-                }),
+                }
+            }
+            Napier.d { "USING COVER ${targetCover?.src}" }
+            AsyncImage(
+                painter = rememberNetworkImagePainter(
+                    targetCover!!.src
+                ) {
+                    targetCover.headers.forEach {
+                        header(it.key, it.value)
+                    }
+                },
                 contentDescription = "Big Background",
-                modifier = Modifier.fillMaxWidth().fillMaxHeight(0.5f),
+                modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop
             )
 
             Box(modifier = Modifier.matchParentSize().background(backgroundBrush))
         }
-        val topBarMainModifier = Modifier.fillMaxWidth().height(70.dp)
-        SelectableContent(
-            state = selectableContentState,
-            topBar = {
-                Box(modifier = topBarMainModifier) {
 
-                }
-            },
-            topSheetContent = {
-                Surface(
-                    color = MaterialTheme.colors.surface,
-                    modifier = topBarMainModifier,
-                    elevation = ModalBottomSheetDefaults.Elevation
-                ) {
-                    Row(
-                        modifier = Modifier.matchParentSize(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceEvenly
-                    ) {
-                        Text(
-                            "${selectableContentState.selectedItems.size} Selected",
-                            fontSize = 20.sp
-                        )
-                    }
-                }
-            },
-            modifier = Modifier.fillMaxSize().onGloballyPositioned {
-                mainContainerSize.value = it.size
-            },
-            bottomSheetContent = {
+        val topBarMainModifier = remember { Modifier.fillMaxWidth().height(70.dp) }
 
-                Surface(
-                    modifier = Modifier.height(80.dp).fillMaxWidth(),
-                    color = MaterialTheme.colors.surface,
-                    elevation = ModalBottomSheetDefaults.Elevation
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp),
-                        horizontalArrangement = Arrangement.SpaceEvenly,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Pressable(onClick = {
-                            coroutineScope.launch {
-                                selectableContentState.collapse()
-                            }
-                        }) {
-                            VectorImage(
-                                Octicons.X16,
-                                modifier = Modifier.size(40.dp),
-                                contentDescription = "Cancel Action"
-                            )
-                        }
-                        Pressable(onClick = {
-
-                        }) {
-                            VectorImage(
-                                Octicons.Download16,
-                                modifier = Modifier.size(40.dp),
-                                contentDescription = "Download Chapters"
-                            )
-                        }
-                    }
-                }
-            },
-        ) {
-            Box(modifier = Modifier.fillMaxSize()) {
-
-                LazyColumn(state = scrollState, modifier = Modifier.pullRefresh(pullRefreshState)) {
-                    // Manga Cover and Title
-                    item {
+        CategorySelectContent(state = categorySelectState) {
+            SelectableContent(
+                state = selectableContentState,
+                topBar = {
+                    Box(modifier = topBarMainModifier) {
                         Row(
-                            modifier = Modifier.then(commonModifier).fillMaxWidth().height(160.dp)
-                        ) {
-                            AsyncImage(
-                                painter = networkImagePainter(state.preview.cover, filterQuality = FilterQuality.None),
-                                contentDescription = "Manga Cover",
-                                modifier = Modifier.fillMaxHeight().aspectRatio(
-                                    Constants.mangaCoverRatio, matchHeightConstraintsFirst = true
-                                ).clip(shape = RoundedCornerShape(5.dp)),
-                                contentScale = ContentScale.Crop,
-
-                                onLoading = {
-                                    Box(contentAlignment = Alignment.Center){
-                                        CircularProgressIndicator(it.progress.value)
-                                    }
-                                },
-                            )
-
-                            Spacer(modifier = Modifier.width(20.dp))
-
-                            Column(
-                                modifier = Modifier.fillMaxHeight().weight(1.0f),
-                                verticalArrangement = Arrangement.Center
-                            ) {
-                                Text(
-                                    state.preview.name,
-                                    fontSize = 23.sp,
-                                    maxLines = 3,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Spacer(modifier = Modifier.width(20.dp))
-                                if (state.data != null) {
-                                    Text(
-                                        state.data!!.status,
-                                        fontSize = 16.sp,
-                                        color = Color.White.copy(alpha = 0.7f)
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    // Bookmark and Share buttons
-                    item {
-                        Row(
-                            modifier = Modifier.then(commonModifier).fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceAround,
+                            modifier = Modifier.matchParentSize().padding(horizontal = 20.dp),
+                            horizontalArrangement = Arrangement.End,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            val iconModifier = Modifier.size(18.dp)
-                            val iconPressable = Modifier.width(100.dp)
-                            val textFontSize = 13.sp
-
-                            state.data?.let {
+                            Box {
+                                var shouldShowContextMenu by remember { mutableStateOf(false) }
                                 Pressable(onClick = {
-                                    if (isBookmarked) {
-                                        coroutineScope.launch {
-                                            component.unBookmark()
-                                        }
-                                    } else {
-                                        coroutineScope.launch {
-                                            component.bookmark()
-                                        }
-
-                                    }
-                                }, modifier = Modifier.then(iconPressable)) {
-                                    Column(
-                                        verticalArrangement = Arrangement.SpaceBetween,
-                                        horizontalAlignment = Alignment.CenterHorizontally
-                                    ) {
-                                        Spacer(modifier = Modifier.height(5.dp))
-                                        VectorImage(
-                                            vector = when (isBookmarked) {
-                                                true -> FontAwesomeIcons.Solid.Bookmark
-                                                else -> FontAwesomeIcons.Regular.Bookmark
-                                            },
-                                            contentDescription = "Bookmark Icon",
-                                            modifier = iconModifier
-                                        )
-                                        Spacer(modifier = Modifier.height(5.dp))
-                                        Text("Bookmark", fontSize = textFontSize)
-                                        Spacer(modifier = Modifier.height(5.dp))
-                                    }
+                                    shouldShowContextMenu = true
+                                }) {
+                                    VectorImage(
+                                        modifier = Modifier.size(30.dp),
+                                        vector = EvaIcons.Fill.Download,
+                                        contentDescription = "Download Manga"
+                                    )
                                 }
+                                DropdownMenu(
+                                    expanded = shouldShowContextMenu,
+                                    onDismissRequest = { shouldShowContextMenu = false }) {
+                                    DropdownMenuItem(text = {
+                                        Text("All")
+                                    }, onClick = {
+                                        shouldShowContextMenu = false
+                                        coroutineScope.launch {
+                                            state.chapters.reversed().forEach {
 
-                                Pressable(onClick = {
-                                    ShareBridge.shareText(it.share)
-                                }, modifier = Modifier.then(iconPressable)) {
-                                    Column(
-                                        verticalArrangement = Arrangement.SpaceBetween,
-                                        horizontalAlignment = Alignment.CenterHorizontally
-                                    ) {
-                                        Spacer(modifier = Modifier.height(5.dp))
-                                        VectorImage(
-                                            vector = Octicons.Share24,
-                                            contentDescription = "Share Icon",
-                                            modifier = iconModifier
+                                                chapterDownloader.downloadChapter(
+                                                    state.sourceId,
+                                                    state.preview.id,
+                                                    it.id,
+                                                    "${state.preview.name} | ${it.name}"
+                                                )
+                                            }
+                                        }
+
+                                    })
+                                    DropdownMenuItem(text = {
+                                        Text("Not Downloaded")
+                                    }, onClick = {
+                                        shouldShowContextMenu = false
+                                        coroutineScope.launch {
+                                            state.chapters.reversed().forEach {
+                                                if (!chapterDownloader.isDownloaded(
+                                                        state.sourceId,
+                                                        state.preview.id,
+                                                        it.id
+                                                    )
+                                                ) {
+                                                    chapterDownloader.downloadChapter(
+                                                        state.sourceId,
+                                                        state.preview.id,
+                                                        it.id,
+                                                        "${state.preview.name} | ${it.name}"
+                                                    )
+                                                }
+
+                                            }
+                                        }
+
+                                    })
+//                                    DropdownMenuItem(text = {
+//                                        Text("Next 10 Chapters")
+//                                    }, onClick = {
+//
+//                                    })
+                                }
+//                                androidx.compose.material.MaterialTheme {
+//                                    DropdownMenu(expanded = shouldShowContextMenu, onDismissRequest = { shouldShowContextMenu = false}){
+//                                        DropdownMenuItem(text = {
+//                                            Text("All Chapters")
+//                                        }, onClick = {
+//
+//                                        })
+//                                        DropdownMenuItem(text = {
+//                                            Text("Next 10 Chapters")
+//                                        }, onClick = {
+//
+//                                        })
+//                                    }
+//                                }
+
+                            }
+                        }
+                    }
+                },
+                topSheetContent = {
+                    Surface(
+                        color = MaterialTheme.colorScheme.surface,
+                        modifier = topBarMainModifier,
+                        tonalElevation = ModalBottomSheetDefaults.Elevation
+                    ) {
+                        Row(
+                            modifier = Modifier.matchParentSize(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceEvenly
+                        ) {
+                            Text(
+                                "${selectableContentState.selectedItems.size} Selected",
+                                fontSize = 20.sp
+                            )
+                        }
+                    }
+                },
+                modifier = Modifier.fillMaxSize(),
+                bottomSheetContent = {
+
+                    Surface(
+                        modifier = Modifier.height(80.dp).fillMaxWidth(),
+                        color = MaterialTheme.colorScheme.surface,
+                        tonalElevation = ModalBottomSheetDefaults.Elevation
+                    ) {
+                        val vectorModifier = remember { Modifier.size(25.dp) }
+                        val pressableModifier = remember { Modifier.clip(RoundedCornerShape(5.dp)) }
+                        Row(
+                            modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp),
+                            horizontalArrangement = Arrangement.SpaceEvenly,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Pressable(onClick = {
+                                coroutineScope.launch {
+                                    selectableContentState.collapse()
+                                }
+                            }, modifier = pressableModifier) {
+                                VectorImage(
+                                    Octicons.X16,
+                                    modifier = vectorModifier,
+                                    contentDescription = "Cancel Action"
+                                )
+                            }
+                            Pressable(onClick = {
+                                coroutineScope.launch {
+                                    selectableContentState.selectedItems.forEach {
+                                        component.realmDatabase.markChapterAsRead(
+                                            state.sourceId,
+                                            state.preview.id,
+                                            it
                                         )
-                                        Spacer(modifier = Modifier.height(5.dp))
-                                        Text("Share")
-                                        Spacer(modifier = Modifier.height(5.dp))
+                                    }
+                                    selectableContentState.collapse()
+                                }
+                            }, modifier = pressableModifier) {
+                                VectorImage(
+                                    EvaIcons.Outline.DoneAll,
+                                    modifier = vectorModifier,
+                                    contentDescription = "Mark Read Action"
+                                )
+                            }
+                            Pressable(onClick = {
+
+                                coroutineScope.launch {
+                                    selectableContentState.selectedItems.forEach {
+                                        val targetIdx = state.chapters.lastIndex - it
+                                        chapterDownloader.downloadChapter(
+                                            state.sourceId,
+                                            state.preview.id,
+                                            state.chapters[targetIdx].id,
+                                            "${component.state.value.preview.name} | ${state.chapters[targetIdx].name}"
+                                        )
+                                    }
+                                    selectableContentState.collapse()
+                                }
+                            }, modifier = pressableModifier) {
+                                VectorImage(
+                                    FontAwesomeIcons.Solid.ArrowDown,
+                                    modifier = vectorModifier,
+                                    contentDescription = "Download Chapters"
+                                )
+                            }
+                        }
+                    }
+                },
+            ) {
+                Box(modifier = Modifier.fillMaxSize()) {
+
+                    LazyColumn(
+                        state = scrollState,
+                        modifier = Modifier.pullRefresh(pullRefreshState),
+                    ) {
+                        // Manga Cover and Title
+                        item {
+                            Row(
+                                modifier = Modifier.then(commonModifier).fillMaxWidth()
+                                    .height(160.dp)
+                            ) {
+//                                AsyncImage(
+//                                    painter = rememberNetworkImagePainter(
+//                                        state.preview.cover!!.src,
+//                                        filterQuality = FilterQuality.None
+//                                    ) {
+//                                        state.preview.cover!!.headers.forEach {
+//                                            header(it.key, it.value)
+//                                        }
+//                                    },
+//                                    contentDescription = "Manga Cover",
+//                                    modifier = Modifier.fillMaxHeight().aspectRatio(
+//                                        Constants.mangaCoverRatio,
+//                                        matchHeightConstraintsFirst = true
+//                                    ).clip(shape = RoundedCornerShape(5.dp)),
+//                                    contentScale = ContentScale.Crop,
+//
+//                                    onLoading = {
+//                                        Box(
+//                                            modifier = Modifier.fillMaxHeight().aspectRatio(
+//                                                Constants.mangaCoverRatio,
+//                                                matchHeightConstraintsFirst = true
+//                                            ), contentAlignment = Alignment.Center
+//                                        ) {
+//                                            CircularProgressIndicator(it.progress.value)
+//                                        }
+//                                    },
+//                                )
+
+                                Spacer(modifier = Modifier.width(20.dp))
+
+                                Column(
+                                    modifier = Modifier.fillMaxHeight().weight(1.0f),
+                                    verticalArrangement = Arrangement.Center
+                                ) {
+                                    Text(
+                                        state.preview.name,
+                                        fontSize = 23.sp,
+                                        maxLines = 3,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.combinedClickable(
+                                            enabled = true,
+                                            onClickLabel = null,
+                                            onLongClickLabel = "copy name",
+                                            onClick = {},
+                                            onLongClick = {
+                                                clipboardManager.setText(AnnotatedString(state.preview.name))
+                                            },
+                                            role = Role.Button,
+                                            indication = null,
+                                            interactionSource = remember { MutableInteractionSource() }
+                                        )
+                                    )
+                                    Spacer(modifier = Modifier.width(20.dp))
+                                    if (state.data != null) {
+                                        Text(
+                                            state.data!!.status,
+                                            fontSize = 16.sp,
+                                            color = Color.White.copy(alpha = 0.7f)
+                                        )
                                     }
                                 }
                             }
                         }
-                    }
 
-                    when (state.data) {
-                        is MangaData -> {
-                            val mangaData = state.data!!
-                            // Description
-                            if (mangaData.description.isNotEmpty()) {
-                                item {
-                                    Pressable(onClick = {
-                                        isDescriptionOpen = !isDescriptionOpen
-                                    }) {
-                                        Box(modifier = Modifier.then(commonModifier)
-                                            .height(descriptionHeight).fillMaxWidth()
-                                            .graphicsLayer {
-                                                clip = true
-                                            }) {
+                        // Bookmark and Share buttons
+                        item {
+                            Row(
+                                modifier = Modifier.then(commonModifier).fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceAround,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
 
-                                            Text(
-                                                mangaData.description,
-                                                modifier = Modifier.fillMaxWidth(),
-                                                fontSize = descriptionFontSize,
-                                            )
+                                state.data?.let {
+                                    MangaViewerContentMainButton(name = "Bookmark",
+                                        icon = when (isBookmarked) {
+                                            true -> FontAwesomeIcons.Solid.Bookmark
+                                            else -> FontAwesomeIcons.Regular.Bookmark
+                                        },
+                                        onClick = {
+                                            if (isBookmarked) {
+                                                coroutineScope.launch {
+                                                    component.unBookmark()
+                                                    component.loadChapters(true)
+                                                }
+                                            } else {
+                                                coroutineScope.launch {
+                                                    component.bookmark()
+                                                    if (allCategories.isNotEmpty()) {
+                                                        categorySelectState.selectCategories(
+                                                            state.sourceId,
+                                                            state.preview.id
+                                                        )
+                                                    }
+                                                }
 
-                                            if (willDescriptionOverflow) {
-                                                Canvas(modifier = Modifier.height(
-                                                    minDescriptionHeightDp / 2
-                                                ).align(Alignment.BottomStart).fillMaxWidth(),
-                                                    onDraw = {
-                                                        drawRect(descriptionBrush)
-                                                    })
+                                            }
+                                        })
+
+                                    if (isBookmarked) {
+                                        MangaViewerContentMainButton(
+                                            name = "Categories",
+                                            icon = FontAwesomeIcons.Solid.Tags,
+                                            onClick = {
+                                                coroutineScope.launch {
+                                                    categorySelectState.selectCategories(
+                                                        state.sourceId,
+                                                        state.preview.id
+                                                    )
+                                                }
+                                            })
+                                    }
+
+                                    MangaViewerContentMainButton(
+                                        name = "Share",
+                                        icon = Octicons.Share24,
+                                        onClick = {
+                                            ShareBridge.shareText(it.share)
+                                        })
+                                }
+                            }
+                        }
+
+                        when (state.data) {
+                            is MangaData -> {
+                                val mangaData = state.data!!
+                                // Description
+                                if (mangaData.description.isNotEmpty()) {
+                                    item {
+                                        Pressable(onClick = {
+                                            isDescriptionOpen = !isDescriptionOpen
+                                        }) {
+                                            Box(modifier = Modifier.then(commonModifier)
+                                                .height(descriptionHeight).fillMaxWidth()
+                                                .graphicsLayer {
+                                                    clip = true
+                                                }) {
+
+                                                Text(
+                                                    mangaData.description,
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    fontSize = descriptionFontSize,
+                                                )
+
+                                                if (willDescriptionOverflow) {
+                                                    Canvas(modifier = Modifier.height(
+                                                        minDescriptionHeightDp / 2
+                                                    ).align(Alignment.BottomStart).fillMaxWidth(),
+                                                        onDraw = {
+                                                            drawRect(descriptionBrush)
+                                                        })
+                                                }
                                             }
                                         }
                                     }
                                 }
-                            }
 
-                            // Tags
-                            if (mangaData.tags.isNotEmpty()) {
-                                item {
-                                    val tagHorizontalSpacing = 5.dp
+                                // Tags
+                                if (mangaData.tags.isNotEmpty()) {
+                                    item {
+                                        val tagHorizontalSpacing = 5.dp
 
-                                    FlowRow(
-                                        modifier = Modifier.padding(horizontal = 20.dp - tagHorizontalSpacing),
-                                        horizontalArrangement = Arrangement.Start
-                                    ) {
-                                        mangaData.tags.forEach { tag ->
-                                            Box(
-                                                modifier = Modifier.padding(
-                                                    vertical = 5.dp,
-                                                    horizontal = tagHorizontalSpacing
-                                                )
-                                            ) {
-                                                Pressable(
-                                                    onClick = {
-                                                        component.searchForTag(tag)
-                                                    }, modifier = Modifier.clip(
-                                                        shape = RoundedCornerShape(
-                                                            5.dp
-                                                        )
-                                                    ), backgroundColor = Color.DarkGray
+                                        FlowRow(
+                                            modifier = Modifier.padding(horizontal = 20.dp - tagHorizontalSpacing),
+                                            horizontalArrangement = Arrangement.Start
+                                        ) {
+                                            mangaData.tags.forEach { tag ->
+                                                Box(
+                                                    modifier = Modifier.padding(
+                                                        vertical = 5.dp,
+                                                        horizontal = tagHorizontalSpacing
+                                                    )
                                                 ) {
-
-                                                    Box(
-                                                        modifier = Modifier.padding(
-                                                            vertical = 5.dp, horizontal = 7.dp
-                                                        )
+                                                    Pressable(
+                                                        onClick = {
+                                                            component.searchForTag(tag)
+                                                        }, modifier = Modifier.clip(
+                                                            shape = RoundedCornerShape(
+                                                                5.dp
+                                                            )
+                                                        ), backgroundColor = Color.DarkGray
                                                     ) {
-                                                        Text(tag, fontSize = 12.sp)
+
+                                                        Box(
+                                                            modifier = Modifier.padding(
+                                                                vertical = 5.dp, horizontal = 7.dp
+                                                            )
+                                                        ) {
+                                                            Text(tag, fontSize = 12.sp)
+                                                        }
                                                     }
                                                 }
                                             }
                                         }
                                     }
                                 }
+
+
                             }
 
+                            else -> {
 
+                            }
                         }
 
-                        else -> {
-
-                        }
-                    }
-
-                    // Chapter count and divider
-                    item {
-                        Column(modifier = Modifier.then(commonModifier)) {
-                            if (state.chapters.isNotEmpty()) {
-                                val targetFirstChapter = when (val curData = state.data) {
-                                    is StoredManga -> {
-                                        state.chapters.lastIndex - (readInfo?.current?.index ?: 0)
-                                    }
-
-                                    else -> {
-                                        state.chapters.lastIndex
-                                    }
-                                }
-                                Box(modifier = Modifier.fillMaxWidth().padding(vertical = 20.dp)) {
-                                    Pressable(
-                                        onClick = {
-                                            component.readChapter(targetFirstChapter)
-                                        },
-                                        modifier = Modifier.clip(shape = RoundedCornerShape(5.dp))
-                                            .width(100.dp).height(30.dp).align(Alignment.Center),
-                                        backgroundColor = Color.DarkGray
+                        // Chapter count and divider
+                        item {
+                            Column(modifier = Modifier.then(commonModifier)) {
+                                if (state.chapters.isNotEmpty()) {
+                                    val targetFirstChapter =
+                                        state.chapters.lastIndex - (readInfo?.current?.index
+                                            ?: 0)
+                                    Box(
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 20.dp)
                                     ) {
-                                        Box {
-                                            Text(
-                                                if (targetFirstChapter == state.chapters.lastIndex) {
-                                                    "Read"
-                                                } else {
-                                                    "Resume"
-                                                }, modifier = Modifier.align(Alignment.Center)
-                                            )
-                                            Spacer(modifier = Modifier.height(verticalPadding))
+                                        Pressable(
+                                            onClick = {
+                                                if (!state.isLoadingChapters) {
+                                                    component.readChapter(targetFirstChapter)
+                                                }
+                                            },
+                                            modifier = Modifier.clip(shape = RoundedCornerShape(5.dp))
+                                                .width(100.dp).height(30.dp)
+                                                .align(Alignment.Center),
+                                            backgroundColor = Color.DarkGray
+                                        ) {
+                                            Box {
+                                                Text(
+                                                    if (targetFirstChapter == state.chapters.lastIndex) {
+                                                        "Read"
+                                                    } else {
+                                                        "Resume"
+                                                    }, modifier = Modifier.align(Alignment.Center)
+                                                )
+                                                Spacer(modifier = Modifier.height(verticalPadding))
+                                            }
                                         }
                                     }
                                 }
-                            }
-                            Row {
-                                Text("${state.chapters.size} chapters")
-                            }
-                            Surface(
-                                color = Color.White.copy(alpha = 0.5f),
-                                modifier = Modifier.fillMaxWidth().height(2.dp)
-                            ) {
+                                Row {
+                                    Text("${state.chapters.size} chapters")
+                                }
+                                Surface(
+                                    color = Color.White.copy(alpha = 0.5f),
+                                    modifier = Modifier.fillMaxWidth().height(2.dp)
+                                ) {
 
+                                }
                             }
                         }
-                    }
 
-                    // Chapters
-                    items(state.chapters.size) { idx ->
-                        val selectionIdx = state.chapters.lastIndex - idx
-                        MangaChapterContent(
-                            component = component,
-                            index = idx,
-                            total = state.chapters.size,
-                            data = state.chapters[idx],
-                            sourceId = state.sourceId,
-                            mangaId = state.preview.id,
-                            isSelected = selectableContentState.isSelected(selectionIdx),
-                            onChapterSelected = {
-                                if (!selectableContentState.isExpanded && !selectableContentState.isExpanding) {
-                                    component.readChapter(idx)
-                                } else {
-                                    if (selectableContentState.isSelected(selectionIdx)) {
-                                        selectableContentState.deselect(selectionIdx)
+                        // Chapters
+                        items(state.chapters.size, key = { state.chapters[it].id }) { idx ->
+                            val selectionIdx = state.chapters.lastIndex - idx
+                            MangaChapterContent(
+                                component = component,
+                                index = idx,
+                                total = state.chapters.size,
+                                data = state.chapters[idx],
+                                selectedState = selectableContentState.selectedItems,
+                                onChapterSelected = {
+                                    if (!selectableContentState.isExpanded && !selectableContentState.isExpanding) {
+                                        if (!state.isLoadingChapters) {
+                                            component.readChapter(idx)
+                                        }
+
                                     } else {
-                                        selectableContentState.select(selectionIdx)
+                                        if (selectableContentState.isSelected(selectionIdx)) {
+                                            selectableContentState.deselect(selectionIdx)
+                                        } else {
+                                            selectableContentState.select(selectionIdx)
+                                        }
                                     }
-                                }
 
-                            },
-                            onChapterLongPressed = {
-                                if (selectableContentState.isCollapsed) {
-                                    selectableContentState.expand(listOf(selectionIdx))
-                                }
-                            })
+                                },
+                                onChapterLongPressed = {
+                                    if (selectableContentState.isCollapsed) {
+                                        selectableContentState.expand(listOf(selectionIdx))
+                                    }
+                                })
+                        }
+                        item {
+                            Spacer(modifier = Modifier.height(20.dp))
+                        }
                     }
-                    item {
-                        Spacer(modifier = Modifier.height(20.dp))
-                    }
+                    PullRefreshIndicator(
+                        state.isLoadingData || state.isLoadingChapters,
+                        state = pullRefreshState,
+                        modifier = Modifier.align(Alignment.TopCenter)
+                    )
                 }
-                PullRefreshIndicator(
-                    state.isLoadingData || state.isLoadingChapters,
-                    state = pullRefreshState,
-                    modifier = Modifier.align(Alignment.TopCenter)
-                )
             }
         }
     }

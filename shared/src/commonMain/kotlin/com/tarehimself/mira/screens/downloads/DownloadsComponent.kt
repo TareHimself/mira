@@ -12,7 +12,7 @@ import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 
 
-interface SourcesComponent : KoinComponent {
+interface DownloadsComponent : KoinComponent {
     val state: MutableValue<State>
 
     val api: MangaApi
@@ -21,18 +21,11 @@ interface SourcesComponent : KoinComponent {
     @Parcelize
     data class State(
         var sources: List<MangaSource> = listOf()
-    ) : Parcelable
-
-    val onItemSelected: (source: String) -> Unit
+    ): Parcelable
 
 }
-
-class DefaultSourcesComponent(
-    componentContext: ComponentContext,
-    onSourceSelected: (source: String) -> Unit
-) : SourcesComponent, ComponentContext by componentContext {
-    override val state: MutableValue<SourcesComponent.State> = MutableValue(
-        stateKeeper.consume(key = "SOURCES_COMP_STATE") ?: SourcesComponent.State()
+class DefaultDownloadsComponent(componentContext: ComponentContext) : DownloadsComponent,ComponentContext by componentContext {
+    override val state: MutableValue<DownloadsComponent.State> = MutableValue(DownloadsComponent.State()
     )
 
     override val api: MangaApi by inject<MangaApi>()
@@ -41,13 +34,11 @@ class DefaultSourcesComponent(
         stateKeeper.register(key = "SOURCES_COMP_STATE") { state.value }
     }
 
-    override val onItemSelected: (source: String) -> Unit = onSourceSelected
-
     override suspend fun getSources() {
         val sources = api.getSources()
 
         state.update {
-            if (sources.data != null) {
+            if(sources.data != null){
                 it.sources = sources.data
             }
 

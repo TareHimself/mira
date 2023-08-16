@@ -1,13 +1,13 @@
-@file:Suppress("INLINE_FROM_HIGHER_PLATFORM")
 package com.tarehimself.mira
 
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.material.MaterialTheme
-import androidx.compose.material.Surface
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.dp
 import com.arkivanov.decompose.extensions.compose.jetbrains.stack.Children
 import com.arkivanov.decompose.extensions.compose.jetbrains.stack.animation.slide
@@ -22,24 +22,10 @@ import io.github.aakira.napier.Napier
 @Composable
 fun RootContent(component: RootComponent){
 
-//    val windowInsetsController = rememberWindowInsetsController()
-//
-//
-//    LaunchedEffect(Unit) {
-//        // Hide the status bars
-//        windowInsetsController?.setIsStatusBarsVisible(false)
-//        // Hide the navigation bars
-//        windowInsetsController?.setIsNavigationBarsVisible(false)
-//        // Change an options for behavior when system bars are hidden
-//        windowInsetsController?.setSystemBarsBehavior(SystemBarsBehavior.Immersive)
-//
-////        component.shareString("Please dont crash my app")
-//    }
 
     Surface(
-
         modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets(0.dp)),
-        color = MaterialTheme.colors.background,
+        color = MaterialTheme.colorScheme.background,
     ) {
 //        animation = stackAnimation( //Causing infinite loops on reader
 //            slide())
@@ -55,15 +41,4 @@ fun RootContent(component: RootComponent){
             }
         }
     }
-
-
-//    CompositionLocalProvider(LocalKamelConfig provides kamelConfig) {
-//        Surface(
-//            modifier = Modifier.fillMaxSize(),
-//            color = MaterialTheme.colors.background,
-//
-//            ) {
-//            SearchScreen()
-//        }
-//    }
 }

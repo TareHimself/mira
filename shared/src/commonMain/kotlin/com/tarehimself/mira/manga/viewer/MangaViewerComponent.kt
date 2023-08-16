@@ -3,7 +3,6 @@ package com.tarehimself.mira.manga.viewer
 import com.arkivanov.decompose.ComponentContext
 import com.arkivanov.decompose.value.MutableValue
 import com.arkivanov.decompose.value.update
-import com.arkivanov.essenty.lifecycle.Lifecycle
 import com.tarehimself.mira.RootComponent
 import com.tarehimself.mira.data.ApiMangaChapter
 import com.tarehimself.mira.data.MangaApi
@@ -12,6 +11,7 @@ import com.tarehimself.mira.data.MangaData
 import com.tarehimself.mira.data.MangaPreview
 import com.tarehimself.mira.data.RealmRepository
 import com.tarehimself.mira.data.StoredMangaExtras
+import com.tarehimself.mira.data.StoredMangaImage
 import io.realm.kotlin.ext.copyFromRealm
 import io.realm.kotlin.ext.toRealmList
 import org.koin.core.component.KoinComponent
@@ -72,18 +72,18 @@ class DefaultMangaViewerComponent(
         )
     )
 
-    init {
-        lifecycle.subscribe(object : Lifecycle.Callbacks {
-
-            override fun onCreate() {
-                super.onCreate()
-            }
-
-            override fun onDestroy() {
-                super.onDestroy()
-            }
-        })
-    }
+//    init {
+//        lifecycle.subscribe(object : Lifecycle.Callbacks {
+//
+//            override fun onCreate() {
+//                super.onCreate()
+//            }
+//
+//            override fun onDestroy() {
+//                super.onDestroy()
+//            }
+//        })
+//    }
 
     override suspend fun loadMangaData(isRefresh: Boolean) {
         state.update {
@@ -92,25 +92,31 @@ class DefaultMangaViewerComponent(
         }
 
 
-        var loadedData: MangaData? = null
-        val isBookmarked = realmDatabase.has(state.value.sourceId,state.value.preview.id)
+        var loadedData: MangaData?
+        val isBookmarked = realmDatabase.has(state.value.sourceId, state.value.preview.id)
         val usedStored = !isRefresh && isBookmarked
-        loadedData = if(usedStored){
-            realmDatabase.getManga(realmDatabase.getMangaKey(state.value.sourceId,state.value.preview.id)).firstOrNull()
+        loadedData = if (usedStored) {
+            realmDatabase.getManga(
+                realmDatabase.getMangaKey(
+                    state.value.sourceId,
+                    state.value.preview.id
+                )
+            ).firstOrNull()
         } else {
             api.getManga(source = state.value.sourceId, mangaId = state.value.preview.id).data
         }
 
-        if(loadedData?.let { usedStored && it.status.isEmpty() } != false){
-            loadedData = api.getManga(source = state.value.sourceId, mangaId = state.value.preview.id).data
+        if (loadedData?.let { usedStored && it.status.isEmpty() } != false) {
+            loadedData =
+                api.getManga(source = state.value.sourceId, mangaId = state.value.preview.id).data
         }
 
         if (loadedData != null) {
-            if(isBookmarked){
+            if (isBookmarked) {
                 realmDatabase.updateManga(state.value.sourceId, state.value.preview.id) {
                     it.name = loadedData.name
                     it.description = loadedData.description
-                    it.cover = loadedData.cover
+                    it.cover = StoredMangaImage(loadedData.cover!!)
                     it.status = loadedData.status
                     it.extras = loadedData.extras.map {
                         StoredMangaExtras().apply {
@@ -127,8 +133,7 @@ class DefaultMangaViewerComponent(
                         update
                     }
                 }
-            }
-            else {
+            } else {
                 state.update {
                     it.data = loadedData
                     it.isLoadingData = false
@@ -149,24 +154,35 @@ class DefaultMangaViewerComponent(
             it
         }
 
-        var loadedData: List<MangaChapter>? = null
-        val isBookmarked = realmDatabase.has(state.value.sourceId,state.value.preview.id)
+        var loadedData: List<MangaChapter>?
+        val isBookmarked = realmDatabase.has(state.value.sourceId, state.value.preview.id)
         val usedStored = !isRefresh && isBookmarked
 
-        loadedData = if(usedStored){
-            realmDatabase.getManga(realmDatabase.getMangaKey(state.value.sourceId,state.value.preview.id)).firstOrNull()?.chapters
+        loadedData = if (usedStored) {
+            realmDatabase.getManga(
+                realmDatabase.getMangaKey(
+                    state.value.sourceId,
+                    state.value.preview.id
+                )
+            ).firstOrNull()?.chapters
         } else {
             api.getChapters(source = state.value.sourceId, mangaId = state.value.preview.id).data
         }
 
-        if(usedStored && loadedData.isNullOrEmpty()){
-            loadedData = api.getChapters(source = state.value.sourceId, mangaId = state.value.preview.id).data
+        if (usedStored && loadedData.isNullOrEmpty()) {
+            loadedData = api.getChapters(
+                source = state.value.sourceId,
+                mangaId = state.value.preview.id
+            ).data
         }
 
-        if(loadedData != null)
-        {
-            if(isBookmarked){
-                realmDatabase.updateChapters(state.value.sourceId,state.value.preview.id,loadedData)
+        if (loadedData != null) {
+            if (isBookmarked) {
+                realmDatabase.updateChapters(
+                    state.value.sourceId,
+                    state.value.preview.id,
+                    loadedData
+                )
             }
 
             state.update {
@@ -190,7 +206,7 @@ class DefaultMangaViewerComponent(
                 else -> if (state.value.chapters[0] is ApiMangaChapter) {
                     state.value.chapters as List<ApiMangaChapter>
                 } else {
-                    listOf<ApiMangaChapter>()
+                    listOf()
                 }
             }
         )
@@ -203,12 +219,12 @@ class DefaultMangaViewerComponent(
     override suspend fun bookmark() {
 
         state.value.data?.let {
-            realmDatabase.bookmark(state.value.sourceId,it,state.value.chapters)
-        } ?: realmDatabase.bookmark(state.value.sourceId,state.value.preview)
+            realmDatabase.bookmark(state.value.sourceId, it, state.value.chapters)
+        } ?: realmDatabase.bookmark(state.value.sourceId, state.value.preview)
 
     }
 
     override suspend fun unBookmark() {
-        realmDatabase.removeBookmark(state.value.sourceId,state.value.preview.id)
+        realmDatabase.removeBookmark(state.value.sourceId, state.value.preview.id)
     }
 }

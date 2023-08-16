@@ -1,9 +1,10 @@
 package com.tarehimself.mira.data
 
 import androidx.compose.ui.graphics.ImageBitmap
-import com.goncalossilva.murmurhash.MurmurHash3
 import com.tarehimself.mira.common.Base64.decodeFromBase64
 import com.tarehimself.mira.common.Cache
+import com.tarehimself.mira.common.quickHash
+import com.tarehimself.mira.common.sizeBytes
 import io.github.aakira.napier.Napier
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
@@ -12,6 +13,7 @@ import io.ktor.client.request.get
 import io.ktor.client.statement.bodyAsChannel
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentLength
+import io.ktor.utils.io.ByteReadChannel
 import org.koin.core.component.KoinComponent
 import kotlin.coroutines.cancellation.CancellationException
 
@@ -20,7 +22,7 @@ interface ImageRepository : KoinComponent {
 
     val cache: Cache<String, ImageBitmap>
 
-    val hashCache: Cache<String, String>
+    val hashCache: HashMap<String,String>
 
     val client: HttpClient
 
@@ -28,7 +30,7 @@ interface ImageRepository : KoinComponent {
         url: String,
         block: HttpRequestBuilder.() -> Unit = {},
         tries: Int = 0
-    ): Pair<Any?, Long>
+    ): Pair<ByteReadChannel?, Long>
 
     fun loadB64Image(url: String): ByteArray
 
@@ -39,9 +41,9 @@ interface ImageRepository : KoinComponent {
 
 class DefaultImageRepository : ImageRepository {
 
-    override val cache = Cache<String, ImageBitmap>(10) // Number of in-memory images at any given time
+    override val cache = Cache<String, ImageBitmap>(50.0f * 1024, sizeOf = { it.sizeBytes().toFloat() / 1024.0f }) // Number of in-memory images at any given time 80MiB
 
-    override val hashCache = Cache<String, String>(70)
+    override val hashCache = HashMap<String,String>()
 
     override val client = HttpClient()
 
@@ -50,24 +52,25 @@ class DefaultImageRepository : ImageRepository {
         url: String,
         block: HttpRequestBuilder.() -> Unit,
         tries: Int
-    ): Pair<Any?, Long> {
+    ): Pair<ByteReadChannel?, Long> {
         try {
             val response = client.get(url, block)
 
             return if (response.status == HttpStatusCode.OK
             ) {
-                var dataLength = response.contentLength() ?: 0
-
-                if (dataLength.toInt() == 0) {
-                    val data = response.body<ByteArray>()
-                    dataLength = data.size.toLong()
-
-                    Napier.w(tag = "image") { "Some BOZO website did not send content length, winging it, Derived size of $dataLength" }
-
-                    return Pair(data, dataLength)
-                } else {
-                    return Pair(response.bodyAsChannel(), dataLength)
-                }
+                return Pair(response.bodyAsChannel(), response.contentLength() ?: 0)
+//                var dataLength = response.contentLength() ?: 0
+//
+//                if (dataLength.toInt() == 0) {
+//                    val data = response.body<ByteArray>()
+//                    dataLength = data.size.toLong()
+//
+//                    Napier.w(tag = "image") { "Some BOZO website did not send content length, winging it, Derived size of $dataLength" }
+//
+//                    return Pair(data, dataLength)
+//                } else {
+//                    return Pair(response.bodyAsChannel(), dataLength)
+//                }
             } else {
                 Pair(null, 0)
             }
@@ -93,33 +96,11 @@ class DefaultImageRepository : ImageRepository {
 
     override fun hashData(data: String): String {
         return hashCache[data] ?: run {
-            val hashed = "${MurmurHash3().hash32x86(data.encodeToByteArray())}"
+            val hashed = data.quickHash()
             hashCache[data] = hashed
             hashed
         }
     }
-
-//    override suspend fun loadBitmap(url:String): ImageBitmap? {
-//        if(cache.contains(url)){
-//            return cache[url]
-//        }
-//
-//
-//        val bArray: ByteArray? = when {
-//            url.startsWith("data:image/png;base64,") -> loadB64Image(url)
-//            url.startsWith("http") -> loadHttpImage(url)
-//            else -> throw Exception("Unknown source $url")
-//        }
-//
-//        return if (bArray != null
-//        ) {
-//            val bitmap = bArray.toImageBitmap()
-//            cache[url] = bitmap
-//            return bitmap
-//        } else {
-//            null
-//        }
-//    }
 
     override fun getCached(
         url: String

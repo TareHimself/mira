@@ -7,7 +7,7 @@ actual class ShareBridge {
     }
 }
 
-actual class CacheBridge {
+actual class FileBridge {
     actual companion object {
         actual fun cacheCover(key: String, data: ByteArray) {
         }

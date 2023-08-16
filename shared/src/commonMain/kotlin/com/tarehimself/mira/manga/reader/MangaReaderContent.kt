@@ -18,10 +18,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.ExperimentalMaterialApi
 import androidx.compose.material.ModalBottomSheetLayout
 import androidx.compose.material.ModalBottomSheetValue
-import androidx.compose.material.Surface
-import androidx.compose.material.Text
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.material.rememberModalBottomSheetState
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -41,8 +42,10 @@ import androidx.compose.ui.unit.sp
 import com.arkivanov.decompose.extensions.compose.jetbrains.subscribeAsState
 import com.tarehimself.mira.Pressable
 import com.tarehimself.mira.VectorImage
-import com.tarehimself.mira.common.AsyncImage
-import com.tarehimself.mira.common.networkImagePainter
+import com.tarehimself.mira.common.ui.AsyncImage
+import com.tarehimself.mira.common.ui.rememberLocalPagePainter
+import com.tarehimself.mira.common.ui.rememberNetworkImagePainter
+import com.tarehimself.mira.data.rememberIsBookmarked
 import compose.icons.Octicons
 import compose.icons.octicons.Share24
 import io.github.aakira.napier.Napier
@@ -63,7 +66,7 @@ fun ReaderChapterLoading() {
     }
 }
 
-//@OptIn(ExperimentalTextApi::class)
+
 @OptIn(ExperimentalMaterialApi::class)
 @Composable
 fun MangaReaderContent(component: MangaReaderComponent) {
@@ -86,6 +89,8 @@ fun MangaReaderContent(component: MangaReaderComponent) {
     var currentChapterTotalPages by remember { mutableStateOf(0) }
 
     var currentBottomSheetTarget by remember { mutableStateOf(-1) }
+
+    val isBookmarked by rememberIsBookmarked(state.sourceId,state.mangaId)
 
     LaunchedEffect(Unit) {
         wasLoading = true
@@ -111,10 +116,12 @@ fun MangaReaderContent(component: MangaReaderComponent) {
 
                     scrollState.scrollToItem(
                         when (val scrollTarget =
-                            component.realmDatabase.getChaptersRead(component.realmDatabase.getMangaKey(
-                                state.sourceId,
-                                state.mangaId
-                            )).firstOrNull()?.current) {
+                            component.realmDatabase.getChaptersRead(
+                                component.realmDatabase.getMangaKey(
+                                    state.sourceId,
+                                    state.mangaId
+                                )
+                            ).firstOrNull()?.current) {
                             null -> {
                                 1
                             }
@@ -156,8 +163,8 @@ fun MangaReaderContent(component: MangaReaderComponent) {
     }
 
     // Track if a chapter has been read
-    LaunchedEffect(Unit) {
-        var lastChapterIndex = state.initialChapterIndex
+    LaunchedEffect(state.chapters.isEmpty()) {
+        var currentChapterIndex = state.initialChapterIndex
         snapshotFlow { scrollState.layoutInfo }.collect { layout ->
 
             if (layout.visibleItemsInfo.isEmpty()) {
@@ -175,30 +182,43 @@ fun MangaReaderContent(component: MangaReaderComponent) {
                 val readerItem = state.pages[targetIdx]
 
                 if (readerItem.chapterIndex != -1) {
+
                     if (readerItem is MangaReaderComponent.ReaderChapterItem) {
-                        if (currentChapterPage != readerItem.pageIndex || currentChapterTotalPages != readerItem.totalPages || lastChapterIndex != readerItem.chapterIndex) {
-
-                            component.realmDatabase.updateMangaReadInfo(
-                                state.sourceId,
-                                state.mangaId,
-                                state.chapters.lastIndex - readerItem.chapterIndex,
-                                readerItem.pageIndex + 1,
-                                readerItem.totalPages
-                            )
-                        }
-
+                        val lastPage = currentChapterPage
+                        val lastTotalPages = currentChapterTotalPages
+                        val lastChapterIndex = currentChapterIndex
                         currentChapterPage = readerItem.pageIndex
                         currentChapterTotalPages = readerItem.totalPages
-                        if (currentChapterPage + 1 == currentChapterTotalPages && currentChapterTotalPages != 0 && readerItem.chapterIndex != -1) {
-                            component.realmDatabase.markChapterAsRead(
-                                state.sourceId,
-                                state.mangaId,
-                                state.chapters.lastIndex - lastChapterIndex
-                            )
+                        currentChapterIndex = readerItem.chapterIndex
+
+                        if(isBookmarked){
+                            if(lastPage != currentChapterPage || lastTotalPages != currentChapterTotalPages || lastChapterIndex != currentChapterIndex){
+                                component.realmDatabase.updateMangaReadInfo(
+                                    state.sourceId,
+                                    state.mangaId,
+                                    state.chapters.lastIndex - currentChapterIndex,
+                                    currentChapterPage + 1,
+                                    currentChapterTotalPages
+                                )
+                            }
+
+                            if (lastChapterIndex != currentChapterIndex) {
+                                component.realmDatabase.markChapterAsRead(
+                                    state.sourceId,
+                                    state.mangaId,
+                                    state.chapters.lastIndex - lastChapterIndex
+                                )
+                            }
+                            else if(currentChapterPage + 1 == currentChapterTotalPages){
+                                component.realmDatabase.markChapterAsRead(
+                                    state.sourceId,
+                                    state.mangaId,
+                                    state.chapters.lastIndex - currentChapterIndex
+                                )
+                            }
+
                         }
                     }
-
-                    lastChapterIndex = readerItem.chapterIndex
                 }
             }
         }
@@ -207,21 +227,24 @@ fun MangaReaderContent(component: MangaReaderComponent) {
     ModalBottomSheetLayout(
         sheetState = sheetState,
         sheetShape = RoundedCornerShape(topStart = 5.dp, topEnd = 5.dp),
+        sheetBackgroundColor = MaterialTheme.colorScheme.surface,
         sheetContent = {
             Column(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.Start,
                 verticalArrangement = Arrangement.SpaceBetween
             ) {
-                Pressable(modifier = Modifier.fillMaxWidth(), onClick = {
+                Pressable(modifier = Modifier.fillMaxWidth().height(70.dp), onClick = {
                     coroutineScope.launch {
                         if (sheetState.isVisible) {
                             sheetState.hide()
                         }
                     }
-
                 }) {
-                    Row(modifier = Modifier.padding(horizontal = 20.dp)) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 20.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         VectorImage(
                             vector = Octicons.Share24,
                             contentDescription = "Share",
@@ -300,7 +323,7 @@ fun MangaReaderContent(component: MangaReaderComponent) {
                     state.pages[it].id
                 }) { idx ->
                     when (val item = state.pages[idx]) {
-                        is MangaReaderComponent.ReaderChapterItem -> {
+                        is MangaReaderComponent.ReaderNetworkChapterItem -> {
                             Pressable(
                                 modifier = Modifier.fillMaxWidth().padding(0.dp, 10.dp),
                                 onLongClick = {
@@ -314,10 +337,9 @@ fun MangaReaderContent(component: MangaReaderComponent) {
                                 }) {
 
                                 AsyncImage(
-                                    painter = networkImagePainter(item.data.src) {
+                                    painter = rememberNetworkImagePainter(item.data.src) {
                                         item.data.headers.forEach {
-                                            header(it.first(), it.last())
-                                            Napier.i(tag = "async image") { "Adding image headers [${it.first()} : ${it.last()}]" }
+                                            header(it.key, it.value)
                                         }
                                     },
                                     contentDescription = "Manga Page",
@@ -352,8 +374,55 @@ fun MangaReaderContent(component: MangaReaderComponent) {
                             }
                         }
 
+                        is MangaReaderComponent.ReaderLocalChapterItem -> {
+                            Pressable(
+                                modifier = Modifier.fillMaxWidth().padding(0.dp, 10.dp),
+                                onLongClick = {
+                                    if (!sheetState.isVisible) {
+                                        coroutineScope.launch {
+                                            currentBottomSheetTarget = idx
+                                            sheetState.show()
+                                        }
+                                    }
+
+                                }) {
+
+                                AsyncImage(
+                                    painter = rememberLocalPagePainter(state.sourceId,state.mangaId,state.chapters[item.chapterIndex].id,item.data),
+                                    contentDescription = "Manga Page",
+                                    modifier = Modifier.fillMaxWidth(),
+                                    contentScale = ContentScale.FillWidth,
+                                    onLoading = {
+                                        Box(
+                                            modifier = Modifier.height(boxWithConstraintsScope.maxHeight)
+                                                .width(boxWithConstraintsScope.maxWidth)
+                                        ) {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.align(
+                                                    Alignment.Center
+                                                )
+                                            )
+                                        }
+                                    },
+                                    onFail = {
+                                        Box(
+                                            modifier = Modifier.height(boxWithConstraintsScope.maxHeight)
+                                                .width(boxWithConstraintsScope.maxWidth)
+                                        ) {
+                                            Text(
+                                                "Failed To Load Page",
+                                                modifier = Modifier.align(
+                                                    Alignment.Center
+                                                )
+                                            )
+                                        }
+                                    })
+
+                            }
+                        }
+
                         is MangaReaderComponent.ReaderDividerItem -> {
-                            if (state.isLoadingPrevious && state.loadedPages.first() == item.chapterIndex) {
+                            if (state.isLoadingPrevious && idx == 0) {
                                 ReaderChapterLoading()
                             }
                             Surface(modifier = Modifier.fillMaxWidth().height(100.dp)) {
@@ -368,7 +437,7 @@ fun MangaReaderContent(component: MangaReaderComponent) {
                                     )
                                 }
                             }
-                            if (state.isLoadingNext && state.loadedPages.last() == item.chapterIndex) {
+                            if (state.isLoadingNext && idx == state.pages.lastIndex) {
                                 ReaderChapterLoading()
                             }
                         }

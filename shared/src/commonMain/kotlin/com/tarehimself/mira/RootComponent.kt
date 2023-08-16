@@ -13,7 +13,9 @@ import com.arkivanov.essenty.parcelable.Parcelable
 import com.arkivanov.essenty.parcelable.Parcelize
 import com.benasher44.uuid.uuid4
 import com.tarehimself.mira.data.ApiMangaChapter
+import com.tarehimself.mira.data.ApiMangaImage
 import com.tarehimself.mira.data.ApiMangaPreview
+import com.tarehimself.mira.data.MangaImage
 import com.tarehimself.mira.data.MangaPreview
 import com.tarehimself.mira.data.RealmRepository
 import com.tarehimself.mira.manga.reader.DefaultMangaReaderComponent
@@ -26,6 +28,8 @@ import com.tarehimself.mira.screens.sources.DefaultMangaSearchComponent
 import com.tarehimself.mira.screens.sources.MangaSearchComponent
 import io.github.aakira.napier.DebugAntilog
 import io.github.aakira.napier.Napier
+import okio.FileSystem
+import okio.Path.Companion.toPath
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 
@@ -62,12 +66,10 @@ class DefaultRootComponent(componentContext: ComponentContext) : RootComponent, 
             override fun onCreate() {
                 super.onCreate()
                 Napier.base(DebugAntilog())
-                realmDatabase.manageData()
             }
 
             override fun onDestroy() {
                 super.onDestroy()
-                realmDatabase.stopActiveManaging()
             }
         })
     }
@@ -76,7 +78,7 @@ class DefaultRootComponent(componentContext: ComponentContext) : RootComponent, 
     data class PreviewDataParcel(
         override val id: String,
         override val name: String,
-        override val cover: String
+        override val cover: ApiMangaImage
     ) : Parcelable, MangaPreview
 
 

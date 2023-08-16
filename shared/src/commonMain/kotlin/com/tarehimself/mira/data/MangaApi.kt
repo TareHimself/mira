@@ -26,7 +26,7 @@ data class SearchItems<T>(
 interface MangaPreview {
     val id: String
     val name: String
-    val cover: String
+    val cover: MangaImage?
 }
 
 @Serializable
@@ -34,7 +34,7 @@ interface MangaPreview {
 data class ApiMangaPreview (
     override val id: String,
     override val name: String,
-    override val cover: String,
+    override val cover: ApiMangaImage,
 
 ): Parcelable, MangaPreview
 
@@ -48,10 +48,42 @@ data class ApiMangaExtras (
     override var value: String
 )  : MangaExtras
 
+
+interface  MangaHeader {
+    val key: String
+    val value: String
+}
+
+@Parcelize
+@Serializable
+data class ApiMangaChapter (
+    override val id: String,
+    override val name: String,
+    override val released: String? = ""
+) : MangaChapter, Parcelable
+interface  MangaImage {
+    val headers: List<MangaHeader>
+    val src: String
+}
+
+@Parcelize
+@Serializable
+data class ApiMangaHeader (
+    override val key: String,
+    override val value: String
+) : MangaHeader, Parcelable
+
+@Parcelize
+@Serializable
+data class ApiMangaImage (
+    override val headers: List<ApiMangaHeader>,
+    override val src: String,
+) : MangaImage, Parcelable
+
 interface MangaData {
     val id: String
     val name: String
-    val cover: String
+    val cover: MangaImage?
     val status: String
     val share: String
     val description: String
@@ -63,7 +95,7 @@ interface MangaData {
 data class ApiMangaData (
     override val id: String,
     override val name: String,
-    override val cover: String,
+    override val cover: ApiMangaImage,
     override val share: String,
     override val status: String,
     override val description: String,
@@ -71,24 +103,12 @@ data class ApiMangaData (
     override val extras: List<ApiMangaExtras>
 ) : MangaData
 
-interface MangaChapter : Parcelable {
+interface MangaChapter {
     val id: String
     val name: String
     val released: String?
 }
-@Parcelize
-@Serializable
-data class ApiMangaChapter (
-    override val id: String,
-    override val name: String,
-    override val released: String? = ""
-) : MangaChapter
 
-@Serializable
-data class ApiMangaChapterPage (
-    val headers: List<List<String>>,
-    val src: String,
-)
 
 @Serializable
 @Parcelize
@@ -115,8 +135,8 @@ class MangaChaptersResponse(override val data: List<ApiMangaChapter>?,
                         override val error: String?) : MangaApiResponse<List<ApiMangaChapter>>()
 
 @Serializable
-class MangaChapterResponse(override val data: List<ApiMangaChapterPage>?,
-                            override val error: String?) : MangaApiResponse<List<ApiMangaChapterPage>>()
+class MangaChapterResponse(override val data: List<ApiMangaImage>?,
+                           override val error: String?) : MangaApiResponse<List<ApiMangaImage>>()
 
 @Serializable
 class MangaSourceResponse(override val data: List<MangaSource>?,

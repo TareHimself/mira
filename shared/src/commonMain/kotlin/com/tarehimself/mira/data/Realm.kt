@@ -6,8 +6,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import com.arkivanov.essenty.parcelable.IgnoredOnParcel
-import com.arkivanov.essenty.parcelable.Parcelize
 import com.benasher44.uuid.uuid4
 import io.github.aakira.napier.Napier
 import io.realm.kotlin.Realm
@@ -18,6 +16,8 @@ import io.realm.kotlin.ext.realmSetOf
 import io.realm.kotlin.notifications.InitialResults
 import io.realm.kotlin.notifications.UpdatedResults
 import io.realm.kotlin.query.RealmResults
+import io.realm.kotlin.query.Sort
+import io.realm.kotlin.types.EmbeddedRealmObject
 import io.realm.kotlin.types.RealmList
 import io.realm.kotlin.types.RealmObject
 import io.realm.kotlin.types.RealmSet
@@ -29,10 +29,9 @@ import kotlinx.datetime.Clock
 import org.koin.compose.koinInject
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
-import org.mongodb.kbson.ObjectId
 
-@Parcelize
-class StoredChapter() : RealmObject, MangaChapter {
+
+class StoredChapter() : EmbeddedRealmObject, MangaChapter {
 
 
     constructor(id: String, name: String, released: String?) : this() {
@@ -41,22 +40,16 @@ class StoredChapter() : RealmObject, MangaChapter {
         this.released = released
     }
 
-    @PrimaryKey
-    @IgnoredOnParcel
-    var uniqueId: ObjectId = ObjectId()
-
     @Index
-    @IgnoredOnParcel
     override var id: String = ""
 
     @Index
-    @IgnoredOnParcel
     override var name: String = ""
 
     override var released: String? = null
 }
 
-class StoredMangaExtras() : RealmObject, MangaExtras {
+class StoredMangaExtras() : EmbeddedRealmObject, MangaExtras {
 
 
     constructor(name: String, value: String) : this() {
@@ -66,14 +59,9 @@ class StoredMangaExtras() : RealmObject, MangaExtras {
 
     override var name: String = ""
     override var value: String = ""
-
-    @PrimaryKey
-    var uniqueId: ObjectId = ObjectId()
-
 }
 
 class StoredSources() : RealmObject {
-
 
     constructor(id: String, name: String) : this() {
         this.id = id
@@ -101,7 +89,8 @@ class StoredMangaCategory() : RealmObject {
         this.position = position
     }
 }
-class StoredChapterReadInfo() : RealmObject {
+
+class StoredChapterReadInfo() : EmbeddedRealmObject {
 
     constructor(index: Int, progress: Int, total: Int) : this() {
         this.index = index
@@ -113,10 +102,8 @@ class StoredChapterReadInfo() : RealmObject {
     var index: Int = 0
     var progress: Int = 0
     var total: Int = 0
-
-    @PrimaryKey
-    var uniqueId: ObjectId = ObjectId()
 }
+
 class StoredChaptersRead() : RealmObject {
     @PrimaryKey
     var uniqueId: String = ""
@@ -140,6 +127,29 @@ class StoredChaptersRead() : RealmObject {
         this.sourceId = sourceId
     }
 }
+
+class StoredMangaHeader() : EmbeddedRealmObject, MangaHeader {
+    override var value: String = ""
+    override var key: String = ""
+
+    constructor(key: String, value: String) : this() {
+        this.key = key
+        this.value = value
+    }
+}
+
+class StoredMangaImage() : EmbeddedRealmObject, MangaImage {
+    override var src: String = ""
+    override var headers: RealmList<StoredMangaHeader> = realmListOf()
+
+    constructor(data: MangaImage) : this() {
+        src = data.src
+        headers.addAll(data.headers.map {
+            StoredMangaHeader(key = it.key, value = it.value)
+        })
+    }
+}
+
 class StoredManga() : RealmObject, MangaPreview, MangaData {
 
 
@@ -148,7 +158,7 @@ class StoredManga() : RealmObject, MangaPreview, MangaData {
         id: String,
         source: String,
         name: String,
-        cover: String,
+        cover: StoredMangaImage,
         addedAt: Long
     ) : this() {
         this.uniqueId = uniqueId
@@ -173,7 +183,8 @@ class StoredManga() : RealmObject, MangaPreview, MangaData {
 
     @Index
     override var name: String = ""
-    override var cover: String = ""
+
+    override var cover: StoredMangaImage? = StoredMangaImage()
 
     @Index
     var addedAt: Long = 0
@@ -253,6 +264,12 @@ interface RealmRepository : KoinComponent {
 
     suspend fun createCategory(name: String)
 
+    suspend fun deleteCategory(id: String)
+    suspend fun updateCategoryPosition(id: String, position: Int)
+
+    suspend fun updateCategoryName(id: String, name: String)
+    fun getCategories(): RealmResults<StoredMangaCategory>
+
 }
 
 class DefaultRealmRepository : RealmRepository {
@@ -269,27 +286,10 @@ class DefaultRealmRepository : RealmRepository {
                 StoredChapterReadInfo::class,
                 StoredMangaCategory::class,
                 StoredChaptersRead::class,
+                StoredMangaImage::class,
+                StoredMangaHeader::class
             )
-        ).deleteRealmIfMigrationNeeded()
-//            .migration(AutomaticSchemaMigration {
-//            val oldRealm = it.oldRealm
-//            val newRealm = it.newRealm
-////
-////            val oldStoredManga = oldRealm.query("StoredManga")
-//
-//            it.enumerate(className = "StoredManga"){
-//                oldObject, newObject ->
-//                newObject?.run {
-//                    set(
-//                        "chaptersRead",
-//                        realmSetOf<Float>().toString()
-//                    )
-//                }
-//            }
-//
-//        })
-//            .schemaVersion(1)
-            .build()
+        ).deleteRealmIfMigrationNeeded().build()
     )
 
     override var activeScope: CoroutineScope? = null
@@ -299,65 +299,7 @@ class DefaultRealmRepository : RealmRepository {
     }
 
     override fun manageData() {
-//        stopActiveManaging()
-//        activeScope = CoroutineScope(Dispatchers.IO)
-//        activeScope?.launch {
-//            var lastData = listOf<StoredManga>()
-//            realm.query(StoredManga::class).asFlow().collect { changes ->
-//                when (changes) {
-//                    is InitialResults<StoredManga> -> {
-//                        for (x in changes.list) {
-//                            bookmarks[x.uniqueId] = x
-//                        }
-//
-//                        lastData = changes.list
-//
-//                        Napier.i(
-//                            "Loaded ${bookmarks.keys.size} bookmarks",
-//                            tag = "realm"
-//                        )
-//
-//                        for (callback in ArrayList(bookmarksUpdatedCallbacks)) { // ArrayList is to avoid java.util.ConcurrentModificationException, not perfect but works
-//                            callback()
-//                        }
-//                    }
-//
-//                    is UpdatedResults<StoredManga> -> {
-//                        for (deletedIdx in changes.deletions) {
-//                            val deleted = lastData[deletedIdx]
-//                            Napier.i("Removing ${deleted.uniqueId} from bookmarks", tag = "realm")
-//                            bookmarks.remove(deleted.uniqueId)
-//                        }
-//
-//                        for (insertedIdx in changes.insertions) {
-//                            val inserted = changes.list[insertedIdx]
-//                            Napier.i("Adding ${inserted.uniqueId} to bookmarks", tag = "realm")
-//                            bookmarks[inserted.uniqueId] = inserted
-//
-//                        }
-//
-//                        for (changedIdx in changes.changes) {
-//                            val changed = changes.list[changedIdx]
-//                            Napier.i("Updating ${changed.uniqueId} in bookmarks", tag = "realm")
-//                            bookmarks[changed.uniqueId] = changed
-//                        }
-//
-//                        lastData = changes.list
-//
-//                        Napier.i(
-//                            "Bookmarks Updated calling ${bookmarksUpdatedCallbacks.size} callbacks",
-//                            tag = "realm"
-//                        )
-//
-//                        for (callback in ArrayList(bookmarksUpdatedCallbacks)) { // ArrayList is to avoid java.util.ConcurrentModificationException, not perfect but works
-//                            callback()
-//                        }
-//                    }
-//
-//                    else -> {}
-//                }
-//            }
-//        }
+
     }
 
 
@@ -378,42 +320,67 @@ class DefaultRealmRepository : RealmRepository {
     }
 
     override fun has(sourceId: String, manga: ApiMangaPreview): Boolean {
-          return realm.query(StoredManga::class, query = "uniqueId == \$0",getMangaKey(sourceId,manga)).find().firstOrNull() != null
+        return realm.query(
+            StoredManga::class,
+            query = "uniqueId == \$0",
+            getMangaKey(sourceId, manga)
+        ).find().firstOrNull() != null
 //        return bookmarks.contains(getMangaKey(sourceId, manga))
     }
 
     override fun has(sourceId: String, manga: MangaData): Boolean {
-        return realm.query(StoredManga::class, query = "uniqueId == \$0",getMangaKey(sourceId,manga)).find().firstOrNull() != null
+        return realm.query(
+            StoredManga::class,
+            query = "uniqueId == \$0",
+            getMangaKey(sourceId, manga)
+        ).find().firstOrNull() != null
 //        return bookmarks.contains(getMangaKey(sourceId, manga))
     }
 
     override fun has(sourceId: String, manga: String): Boolean {
-        return realm.query(StoredManga::class, query = "uniqueId == \$0",getMangaKey(sourceId,manga)).find().firstOrNull() != null
+        return realm.query(
+            StoredManga::class,
+            query = "uniqueId == \$0",
+            getMangaKey(sourceId, manga)
+        ).find().firstOrNull() != null
 //        return bookmarks.contains(getMangaKey(sourceId, manga))
     }
 
     override fun hasReadInfo(sourceId: String, manga: ApiMangaPreview): Boolean {
-        return realm.query(StoredChaptersRead::class, query = "uniqueId == \$0",getMangaKey(sourceId,manga)).find().firstOrNull() != null
+        return realm.query(
+            StoredChaptersRead::class,
+            query = "uniqueId == \$0",
+            getMangaKey(sourceId, manga)
+        ).find().firstOrNull() != null
 //        return bookmarks.contains(getMangaKey(sourceId, manga))
     }
 
     override fun hasReadInfo(sourceId: String, manga: MangaData): Boolean {
-        return realm.query(StoredChaptersRead::class, query = "uniqueId == \$0",getMangaKey(sourceId,manga)).find().firstOrNull() != null
+        return realm.query(
+            StoredChaptersRead::class,
+            query = "uniqueId == \$0",
+            getMangaKey(sourceId, manga)
+        ).find().firstOrNull() != null
 //        return bookmarks.contains(getMangaKey(sourceId, manga))
     }
 
     override fun hasReadInfo(sourceId: String, manga: String): Boolean {
-        return realm.query(StoredChaptersRead::class, query = "uniqueId == \$0",getMangaKey(sourceId,manga)).find().firstOrNull() != null
+        return realm.query(
+            StoredChaptersRead::class,
+            query = "uniqueId == \$0",
+            getMangaKey(sourceId, manga)
+        ).find().firstOrNull() != null
 //        return bookmarks.contains(getMangaKey(sourceId, manga))
     }
 
     override fun getManga(mangaKey: String): RealmResults<StoredManga> {
-        return realm.query(StoredManga::class, query = "uniqueId == \$0",mangaKey).find()
+        return realm.query(StoredManga::class, query = "uniqueId == \$0", mangaKey).find()
     }
 
     override fun getChaptersRead(mangaKey: String): RealmResults<StoredChaptersRead> {
-        return realm.query(StoredChaptersRead::class, query = "uniqueId == \$0",mangaKey).find()
+        return realm.query(StoredChaptersRead::class, query = "uniqueId == \$0", mangaKey).find()
     }
+
     override suspend fun bookmark(
         sourceId: String,
         mangaData: MangaData,
@@ -431,7 +398,7 @@ class DefaultRealmRepository : RealmRepository {
                 source = sourceId,
                 id = mangaData.id,
                 name = mangaData.name,
-                cover = mangaData.cover,
+                cover = StoredMangaImage(mangaData.cover!!),
                 addedAt = Clock.System.now().epochSeconds
             ).apply {
 
@@ -469,7 +436,7 @@ class DefaultRealmRepository : RealmRepository {
                 source = sourceId,
                 id = mangaPreview.id,
                 name = mangaPreview.name,
-                cover = mangaPreview.cover,
+                cover = StoredMangaImage(mangaPreview.cover!!),
                 addedAt = Clock.System.now().epochSeconds
             )
 
@@ -556,13 +523,15 @@ class DefaultRealmRepository : RealmRepository {
     ) {
         realm.write {
             val uniqueId = getMangaKey(sourceId, mangaId)
+            Napier.d { "Progress $progress Total $total" }
             query<StoredChaptersRead>("uniqueId == $0", uniqueId).find().firstOrNull()?.let {
-                when(val readInfo = it.current){
+                when (val readInfo = it.current) {
                     is StoredChapterReadInfo -> {
                         readInfo.index = chapterIndex
                         readInfo.progress = progress
                         readInfo.total = total
                     }
+
                     else -> {
                         it.current = StoredChapterReadInfo(
                             index = chapterIndex,
@@ -571,8 +540,8 @@ class DefaultRealmRepository : RealmRepository {
                         )
                     }
                 }
-            } ?: run{
-                copyToRealm(StoredChaptersRead(uniqueId,mangaId,sourceId).apply {
+            } ?: run {
+                copyToRealm(StoredChaptersRead(uniqueId, mangaId, sourceId).apply {
                     current = StoredChapterReadInfo(
                         index = chapterIndex,
                         progress = progress,
@@ -590,10 +559,13 @@ class DefaultRealmRepository : RealmRepository {
         realm.write {
             query<StoredChaptersRead>("uniqueId == $0", uniqueId).find().firstOrNull()?.let {
                 if (it.read.add(chapterIndex)) {
-                    Napier.i("Marked chapter $chapterIndex in manga $uniqueId as read", tag = "realm")
+                    Napier.i(
+                        "Marked chapter $chapterIndex in manga $uniqueId as read",
+                        tag = "realm"
+                    )
                 }
             } ?: run {
-                copyToRealm(StoredChaptersRead(uniqueId,mangaId,sourceId).apply {
+                copyToRealm(StoredChaptersRead(uniqueId, mangaId, sourceId).apply {
                     read.add(chapterIndex)
                 })
             }
@@ -602,134 +574,203 @@ class DefaultRealmRepository : RealmRepository {
 
     override suspend fun createCategory(name: String) {
         realm.write {
-            copyToRealm(StoredMangaCategory(name,-1))
+            query(StoredMangaCategory::class).sort("position", Sort.DESCENDING).find()
+                .firstOrNull()?.let {
+                    copyToRealm(StoredMangaCategory(name, it.position + 1))
+                } ?: run {
+                copyToRealm(StoredMangaCategory(name, 0))
+            }
         }
+    }
+
+    override suspend fun deleteCategory(id: String) {
+        realm.write {
+            query(StoredMangaCategory::class, "id = $0", id).find().firstOrNull()?.let {
+                query(StoredManga::class, "$0 IN categories", id).find()
+                    .forEach { manga -> manga.categories.remove(id) }
+                delete(it)
+                query(StoredMangaCategory::class).sort("position", Sort.ASCENDING).find()
+                    .forEachIndexed { idx, cat -> cat.position = idx }
+            }
+        }
+    }
+
+    override suspend fun updateCategoryPosition(id: String, position: Int) {
+        Napier.d { "Updating Position of $id To $position" }
+        if (position < 0) {
+            return
+        }
+
+        realm.write {
+            val results = query(StoredMangaCategory::class).sort("position", Sort.ASCENDING).find()
+            if (results.isEmpty()) {
+                return@write
+            } else {
+                results.find { it.id == id }?.let { item ->
+                    val isMovingUp = position < item.position
+                    val beforeItem = results.filter {
+                        (if (isMovingUp) {
+                            it.position < position
+                        } else {
+                            it.position <= position
+                        }) &&
+                                it.id != item.id
+                    }
+                    val afterItem = results.filter {
+                        (if (isMovingUp) {
+                            it.position >= position
+                        } else {
+                            it.position > position
+                        }) && it.id != item.id
+                    }
+                    val newItems = arrayListOf<StoredMangaCategory>()
+                    newItems.addAll(beforeItem)
+                    newItems.add(item)
+                    newItems.addAll(afterItem)
+                    Napier.d { "SORTING CATEGORIES ${beforeItem.map { it.name }}  ${results.map { it.name }}  ${results.map { it.position }}" }
+                    newItems.forEachIndexed { idx, it -> it.position = idx }
+                }
+            }
+        }
+    }
+
+    override suspend fun updateCategoryName(id: String, name: String) {
+        realm.write {
+            query(StoredMangaCategory::class, "id = $0", id).find().firstOrNull()?.let { item ->
+                item.name = name
+            }
+        }
+    }
+
+    override fun getCategories(): RealmResults<StoredMangaCategory> {
+        return realm.query(StoredMangaCategory::class).sort("position", Sort.ASCENDING).find()
     }
 
 }
 
 
 @Composable
-fun <T> subscribeBookmarksUpdate(
-    key: Any,
-    getData: (realmRepository: RealmRepository) -> T,
+fun rememberReadInfo(
+    sourceId: String,
+    mangaId: String,
     realmRepository: RealmRepository = koinInject()
-): MutableState<T> {
-    val data: MutableState<T> = remember { mutableStateOf(getData(realmRepository)) }
+): StoredChaptersRead? {
 
-//    DisposableEffect(key) {
-//        val unsubscribe = realmRepository.subscribeOnBookmarksUpdated {
-//            data.value = getData(realmRepository)
-//        }
-//
-//        onDispose {
-//            unsubscribe()
-//        }
-//    }
+    val data = remember(sourceId, mangaId) { mutableStateOf<StoredChaptersRead?>(null) }
+
+    LaunchedEffect(sourceId, mangaId) {
+        realmRepository.getChaptersRead(realmRepository.getMangaKey(sourceId, mangaId)).asFlow()
+            .collect { changes ->
+                data.value = changes.list.firstOrNull()
+            }
+    }
+
+    return data.value
+}
+
+@Composable
+fun rememberMangaInfo(
+    sourceId: String,
+    mangaId: String,
+    realmRepository: RealmRepository = koinInject()
+): StoredManga? {
+
+    val data = remember(sourceId, mangaId) { mutableStateOf<StoredManga?>(null) }
+
+    LaunchedEffect(sourceId, mangaId) {
+        realmRepository.getManga(realmRepository.getMangaKey(sourceId, mangaId)).asFlow()
+            .collect { changes ->
+                data.value = changes.list.firstOrNull()
+            }
+    }
+
+    return data.value
+}
+
+@Composable
+fun rememberIsBookmarked(
+    sourceId: String,
+    mangaId: String,
+    lazy: Boolean = true,
+    realmRepository: RealmRepository = koinInject()
+): MutableState<Boolean> {
+
+    val data =
+        remember(sourceId, mangaId) {
+            mutableStateOf(
+                when (lazy) {
+                    true -> false
+                    else -> realmRepository.has(sourceId, mangaId)
+                }
+            )
+        }
+
+
+    LaunchedEffect(sourceId, mangaId) {
+        realmRepository.getManga(realmRepository.getMangaKey(sourceId, mangaId)).asFlow()
+            .collect { changes ->
+                data.value = changes.list.firstOrNull() != null
+            }
+    }
 
     return data
 }
 
 @Composable
-fun rememberReadInfo(sourceId: String,mangaId: String,realmRepository: RealmRepository = koinInject()): StoredChaptersRead? {
+fun rememberCategories(
+    lazy: Boolean = true,
+    realmRepository: RealmRepository = koinInject()
+): MutableState<List<StoredMangaCategory>> {
 
-    val data = remember(sourceId,mangaId) { mutableStateOf<StoredChaptersRead?>(null) }
-
-    LaunchedEffect(sourceId,mangaId){
-        realmRepository.getChaptersRead(realmRepository.getMangaKey(sourceId,mangaId)).asFlow().collect{changes ->
-            when (changes) {
-                is InitialResults<StoredChaptersRead> -> {
-                    data.value = changes.list.firstOrNull()
-
-                    Napier.i(
-                        "Updated Read Info For Manga",
-                        tag = "realm"
-                    )
-                }
-
-                is UpdatedResults<StoredChaptersRead> -> {
-                    if(changes.deletions.isNotEmpty()){
-                        data.value = null
-                        Napier.i("Deleting Read Info For Manga", tag = "realm")
-                    }
-
-                    if(changes.insertions.isNotEmpty() ||changes.changes.isNotEmpty()){
-                        data.value = changes.list.firstOrNull()
-                        Napier.i("Updating Read Info For Manga", tag = "realm")
-                    }
-                }
-
-                else -> {}
+    val data = remember {
+        mutableStateOf(
+            when (lazy) {
+                true -> listOf()
+                else -> realmRepository.getCategories().toList()
             }
-        }
+        )
     }
 
-    return data.value
+    LaunchedEffect(Unit) {
+        realmRepository.getCategories().asFlow()
+            .collect { changes ->
+                data.value = changes.list
+            }
+    }
+
+    return data
 }
 
 @Composable
-fun rememberMangaInfo(sourceId: String,mangaId: String,realmRepository: RealmRepository = koinInject()): StoredManga? {
+fun rememberMangaCategories(
+    sourceId: String,
+    mangaId: String,
+    lazy: Boolean = true,
+    realmRepository: RealmRepository = koinInject()
+): MutableState<List<Pair<StoredMangaCategory, Boolean>>> {
 
-    val data = remember(sourceId,mangaId) { mutableStateOf<StoredManga?>(null) }
+    val mangaData = rememberMangaInfo(sourceId, mangaId)
 
-    LaunchedEffect(sourceId,mangaId){
-        realmRepository.getManga(realmRepository.getMangaKey(sourceId,mangaId)).asFlow().collect{changes ->
-            when (changes) {
-                is InitialResults<StoredManga> -> {
-                    data.value = changes.list.firstOrNull()
-
-                    Napier.i(
-                        "Updated Info For Manga",
-                        tag = "realm"
-                    )
+    val data = remember {
+        mutableStateOf(when (lazy) {
+            true -> listOf()
+            else -> {
+                realmRepository.getCategories().map {
+                    Pair(it, mangaData?.categories?.contains(it.id) == true)
                 }
-
-                is UpdatedResults<StoredManga> -> {
-                    if(changes.deletions.isNotEmpty()){
-                        data.value = null
-                        Napier.i("Deleting Info For Manga", tag = "realm")
-                    }
-
-                    if(changes.insertions.isNotEmpty() ||changes.changes.isNotEmpty()){
-                        data.value = changes.list.firstOrNull()
-                        Napier.i("Updating Info For Manga", tag = "realm")
-                    }
-                }
-
-                else -> {}
             }
-        }
+        })
     }
 
-    return data.value
-}
+    LaunchedEffect(mangaData) {
+        realmRepository.getCategories().asFlow()
+            .collect { changes ->
 
-@Composable
-fun rememberIsBookmarked(sourceId: String,mangaId: String,realmRepository: RealmRepository = koinInject()): Boolean {
-
-    val data = remember(sourceId,mangaId) { mutableStateOf(realmRepository.has(sourceId,mangaId)) }
-
-    LaunchedEffect(sourceId,mangaId){
-        realmRepository.getManga(realmRepository.getMangaKey(sourceId,mangaId)).asFlow().collect{changes ->
-            when (changes) {
-                is InitialResults<StoredManga> -> {
-                    data.value = changes.list.firstOrNull() != null
+                data.value = changes.list.map {
+                    Pair(it, mangaData?.categories?.contains(it.id) == true)
                 }
-
-                is UpdatedResults<StoredManga> -> {
-                    if(changes.deletions.isNotEmpty()){
-                        data.value = false
-                    }
-
-                    if(changes.insertions.isNotEmpty() ||changes.changes.isNotEmpty()){
-                        data.value = true
-                    }
-                }
-
-                else -> {}
             }
-        }
     }
 
-    return data.value
+    return data
 }

@@ -1,20 +1,18 @@
-package com.tarehimself.mira
+package com.tarehimself.mira.common.ui
 
-import androidx.compose.animation.ExperimentalAnimationApi
 import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.calculateEndPadding
-import androidx.compose.foundation.layout.calculateStartPadding
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.ExperimentalMaterialApi
-import androidx.compose.material.Scaffold
-import androidx.compose.material.ScaffoldState
-import androidx.compose.material.rememberScaffoldState
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.Stable
@@ -39,11 +37,9 @@ enum class ESelectableContentStatus {
     COLLAPSING
 }
 
-@ExperimentalMaterialApi
 @Stable
 class SelectableContentState<T>(
     val selectedItems: SnapshotStateList<T>,
-    val scaffoldState: ScaffoldState,
     var bottomSheetDesiredHeight: MutableState<Int>,
     var topSheetDesiredHeight: MutableState<Int>,
     val status: MutableState<ESelectableContentStatus>,
@@ -65,8 +61,7 @@ class SelectableContentState<T>(
     fun expand(initialItems: List<T>?) {
         if (status.value != ESelectableContentStatus.EXPANDED) {
             status.value = ESelectableContentStatus.EXPANDING
-            if(initialItems != null)
-            {
+            if (initialItems != null) {
                 selectedItems.addAll(initialItems)
             }
         }
@@ -80,42 +75,36 @@ class SelectableContentState<T>(
         }
     }
 
-    fun select(item: T){
-        if(selectedItems.size < maxSelectedItems.value){
+    fun select(item: T) {
+        if (selectedItems.size < maxSelectedItems.value) {
             selectedItems.add(item)
             Napier.d { "Selected $item" }
         }
     }
 
-    fun deselect(item: T){
-        if((selectedItems.size - 1) < minSelectedItems.value){
+    fun deselect(item: T) {
+        if ((selectedItems.size - 1) < minSelectedItems.value) {
             collapse()
-        }
-        else
-
-        {
+        } else {
             selectedItems.remove(item)
         }
     }
 
-    fun isSelected(item: T): Boolean{
+    fun isSelected(item: T): Boolean {
         return selectedItems.contains(item)
     }
 }
 
 @Composable
-@ExperimentalMaterialApi
 fun <T> rememberSelectableContentState(
     selectedItems: SnapshotStateList<T> = remember { mutableStateListOf() },
-    scaffoldState: ScaffoldState = rememberScaffoldState(),
     minSelectedItems: MutableState<Int> = remember { mutableStateOf(1) },
     maxSelectedItems: MutableState<Int> = remember { mutableStateOf(Int.MAX_VALUE) },
 ): SelectableContentState<T> {
-    return remember(selectedItems, scaffoldState) {
+    return remember(selectedItems, minSelectedItems, maxSelectedItems) {
 
         SelectableContentState(
             selectedItems = selectedItems,
-            scaffoldState = scaffoldState,
             topSheetDesiredHeight = mutableStateOf(999999),
             bottomSheetDesiredHeight = mutableStateOf(999999),
             status = mutableStateOf(ESelectableContentStatus.COLLAPSED),
@@ -125,7 +114,9 @@ fun <T> rememberSelectableContentState(
     }
 }
 
-@OptIn(ExperimentalMaterialApi::class, ExperimentalAnimationApi::class)
+@OptIn(
+    ExperimentalMaterial3Api::class
+)
 @Composable
 fun <T> SelectableContent(
     topBar: @Composable() (() -> Unit) = {},
@@ -134,7 +125,7 @@ fun <T> SelectableContent(
     modifier: Modifier = Modifier,
     state: SelectableContentState<T> = rememberSelectableContentState(),
     animationSpec: AnimationSpec<Float> = spring(),
-    content: @Composable() (() -> Unit)
+    content: @Composable() (BoxScope.() -> Unit)
 ) {
 
     val sheetDesiredHeightDp = (state.bottomSheetDesiredHeight.value).pxToDp()
@@ -164,20 +155,25 @@ fun <T> SelectableContent(
                 Box(
                     modifier = Modifier.clip(
                         RoundedCornerShape(bottomStart = 5.dp, bottomEnd = 5.dp)
-                    ).offset(y=topSheetDesiredHeightDp * ((1.0f - sheetVisibilityAlpha) * -1)).onGloballyPositioned {
-                        state.topSheetDesiredHeight.value = it.size.height
-                    }
+                    ).offset(y = topSheetDesiredHeightDp * ((1.0f - sheetVisibilityAlpha) * -1))
+                        .onGloballyPositioned {
+                            state.topSheetDesiredHeight.value = it.size.height
+                        }
                 ) {
                     topSheetContent()
                 }
             }
         },
         modifier = modifier,
-        backgroundColor = Color.Transparent,
-        scaffoldState = state.scaffoldState,
-    ) {padding ->
-        Box(){
-            Box(modifier = Modifier.padding(top = padding.calculateTopPadding(), bottom = padding.calculateBottomPadding() + (sheetDesiredHeightDp * (sheetVisibilityAlpha)))) {
+        containerColor = Color.Transparent,
+    ) { padding ->
+        Box {
+            Box(
+                modifier = Modifier.padding(
+                    top = padding.calculateTopPadding(),
+                    bottom = padding.calculateBottomPadding() + (sheetDesiredHeightDp * (sheetVisibilityAlpha))
+                )
+            ) {
                 content()
             }
             // Bottom sheet

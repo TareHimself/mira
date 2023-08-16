@@ -1,10 +1,11 @@
 package com.tarehimself.mira.android
 
-import CacheBridge
+import FileBridge
 import ShareBridge
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.core.app.ActivityCompat
 import com.arkivanov.decompose.defaultComponentContext
 import com.tarehimself.mira.DefaultRootComponent
 import com.tarehimself.mira.RootContent
@@ -18,8 +19,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+
         ShareBridge.setContext(applicationContext)
-        CacheBridge.setContext(applicationContext)
+        FileBridge.setContext(applicationContext)
 
         initKoin {
             androidContext(applicationContext)
@@ -54,6 +56,6 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         super.onDestroy()
         ShareBridge.clearContext()
-        CacheBridge.clearContext()
+        FileBridge.clearContext()
     }
 }

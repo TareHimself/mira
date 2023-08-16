@@ -2,11 +2,11 @@ package com.tarehimself.mira.android
 
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.MaterialTheme
-import androidx.compose.material.Shapes
-import androidx.compose.material.Typography
-import androidx.compose.material.darkColors
-import androidx.compose.material.lightColors
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Shapes
+import androidx.compose.material3.Typography
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
@@ -21,26 +21,32 @@ fun MyApplicationTheme(
     content: @Composable () -> Unit
 ) {
     val colors = if (true) {
-        darkColors(
+        darkColorScheme(
             primary = Color(0xFFBB86FC),
-            primaryVariant = Color(0xFF3700B3),
+            onPrimary = Color.White,
+            primaryContainer = Color(0xFF3700B3),
             secondary = Color(0xFF03DAC5),
+            onSecondary = Color.White,
+
+
 //            surface = Color.DarkGray
         )
     } else {
-        lightColors(
+        lightColorScheme(
             primary = Color(0xFF6200EE),
-            primaryVariant = Color(0xFF3700B3),
+            primaryContainer = Color(0xFF3700B3),
             secondary = Color(0xFF03DAC5)
         )
     }
-    val typography = Typography(
-        body1 = TextStyle(
-            fontFamily = FontFamily.Default,
-            fontWeight = FontWeight.Normal,
-            fontSize = 16.sp
-        )
-    )
+    val typography = Typography()
+
+
+//    bodySmall = TextStyle(
+//        fontFamily = FontFamily.Default,
+//        fontWeight = FontWeight.Normal,
+//        fontSize = 16.sp
+//    )
+
     val shapes = Shapes(
         small = RoundedCornerShape(4.dp),
         medium = RoundedCornerShape(4.dp),
@@ -48,7 +54,7 @@ fun MyApplicationTheme(
     )
 
     MaterialTheme(
-        colors = colors,
+        colorScheme = colors,
         typography = typography,
         shapes = shapes,
         content = content,

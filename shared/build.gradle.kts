@@ -14,13 +14,14 @@ plugins {
 kotlin {
     targetHierarchy.default()
 
-    android {
+    androidTarget {
         compilations.all {
             kotlinOptions {
-                jvmTarget = "1.8"
+                jvmTarget = "17"
             }
         }
     }
+
     
     listOf(
         iosX64(),
@@ -35,12 +36,15 @@ kotlin {
     sourceSets {
         val ktorVersion = "2.3.2"
         val decomposeVersion = "2.0.0-compose-experimental"
+        val okioVersion = "3.5.0"
 
         val commonMain by getting {
             dependencies {
                 // Compose
                 implementation(compose.runtime)
                 implementation(compose.foundation)
+                // Material 3
+                implementation(compose.material3)
                 implementation(compose.material)
                 @OptIn(org.jetbrains.compose.ExperimentalComposeLibrary::class)
                 implementation(compose.components.resources)
@@ -48,6 +52,8 @@ kotlin {
                 // Icon Packs https://github.com/DevSrSouza/compose-icons
                 implementation("br.com.devsrsouza.compose.icons:font-awesome:1.1.0")
                 implementation("br.com.devsrsouza.compose.icons:octicons:1.1.0")
+                implementation("br.com.devsrsouza.compose.icons:eva-icons:1.1.0")
+                implementation("br.com.devsrsouza.compose.icons:css-gg:1.1.0")
 
                 // UUID https://github.com/benasher44/uuid
                 implementation("com.benasher44:uuid:0.7.1")
@@ -75,8 +81,7 @@ kotlin {
                 implementation("io.insert-koin:koin-core:3.4.2")
                 implementation("io.insert-koin:koin-compose:1.0.3")
 
-                // Material 3
-                implementation(compose.material3)
+
 
 
 //                // https://github.com/Kamel-Media/Kamel#loading-an-image-resource
@@ -94,12 +99,26 @@ kotlin {
 
                 // hashing https://github.com/goncalossilva/kotlinx-murmurhash
                 implementation("com.goncalossilva:murmurhash:0.4.0")
+
+
+                // https://square.github.io/okio/multiplatform/
+                implementation("com.squareup.okio:okio:$okioVersion")
+
+                // https://github.com/russhwolf/multiplatform-settings
+                implementation("com.russhwolf:multiplatform-settings:1.0.0")
             }
         }
+
+//        val jsMain by getting {
+//            dependencies {
+//                implementation("com.squareup.okio:okio-nodefilesystem:$okioVersion")
+//            }
+//        }
+
         val commonTest by getting {
             dependencies {
                 implementation(kotlin("test"))
-
+                implementation("com.squareup.okio:okio-fakefilesystem:$okioVersion")
 
             }
         }
@@ -107,7 +126,6 @@ kotlin {
         val androidMain by getting {
             dependencies {
                 implementation("io.ktor:ktor-client-android:$ktorVersion")
-
             }
         }
 //        val iosMain by creating {

@@ -11,26 +11,30 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.material.Scaffold
-import androidx.compose.material.Surface
-import androidx.compose.material.Text
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.neverEqualPolicy
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.arkivanov.decompose.ExperimentalDecomposeApi
 import com.arkivanov.decompose.extensions.compose.jetbrains.stack.Children
 import com.arkivanov.decompose.extensions.compose.jetbrains.stack.animation.fade
 import com.arkivanov.decompose.extensions.compose.jetbrains.stack.animation.stackAnimation
 import com.arkivanov.decompose.extensions.compose.jetbrains.subscribeAsState
 import com.tarehimself.mira.Pressable
 import com.tarehimself.mira.VectorImage
-import com.tarehimself.mira.screens.library.LibraryContent
+import com.tarehimself.mira.screens.bookmarks.BookmarksContent
+import com.tarehimself.mira.screens.sources.DownloadsContent
+import com.tarehimself.mira.screens.settings.SettingsContent
 import com.tarehimself.mira.screens.sources.SourcesContent
 import compose.icons.FontAwesomeIcons
 import compose.icons.Octicons
@@ -38,6 +42,7 @@ import compose.icons.fontawesomeicons.Regular
 import compose.icons.fontawesomeicons.Solid
 import compose.icons.fontawesomeicons.regular.Bookmark
 import compose.icons.fontawesomeicons.solid.Bookmark
+import compose.icons.fontawesomeicons.solid.Cog
 import compose.icons.octicons.Search24
 
 
@@ -51,11 +56,13 @@ fun ScreensContentBottomBarItem(
 ) {
 
 
-    val pressableModifier = Modifier.height(50.dp).width(80.dp)
     val iconSize = 20.dp
 
 
-    Pressable(modifier = pressableModifier, onClick = onClick) {
+    Pressable(
+        modifier = Modifier.height(60.dp).width(80.dp).clip(RoundedCornerShape(5.dp)),
+        onClick = onClick
+    ) {
         Column(
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally
@@ -90,7 +97,7 @@ fun ScreensContentBottomBarItem(
 }
 
 
-@OptIn(ExperimentalDecomposeApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ScreensContent(component: ScreensComponent) {
 
@@ -107,7 +114,7 @@ fun ScreensContent(component: ScreensComponent) {
                     vector = FontAwesomeIcons.Regular.Bookmark,
                     vectorSelected = FontAwesomeIcons.Solid.Bookmark,
                     onClick = {
-                        component.showLibrary()
+                        component.showBookmarks()
                     },
                     label = "Bookmarks",
                     isActive = state.activeScreen == ScreensComponent.EActiveScreen.Library
@@ -121,6 +128,24 @@ fun ScreensContent(component: ScreensComponent) {
                     label = "Search",
                     isActive = state.activeScreen == ScreensComponent.EActiveScreen.Sources
                 )
+
+//                ScreensContentBottomBarItem(
+//                    vector = FontAwesomeIcons.Solid.ArrowDown,
+//                    onClick = {
+//                        component.showDownloads()
+//                    },
+//                    label = "Downloads",
+//                    isActive = state.activeScreen == ScreensComponent.EActiveScreen.Downloads
+//                )
+
+                ScreensContentBottomBarItem(
+                    vector = FontAwesomeIcons.Solid.Cog,
+                    onClick = {
+                        component.showSettings()
+                    },
+                    label = "Settings",
+                    isActive = state.activeScreen == ScreensComponent.EActiveScreen.Settings
+                )
             }
         }
     }) { padding ->
@@ -132,8 +157,10 @@ fun ScreensContent(component: ScreensComponent) {
             )
         ) {
             when (val child = it.instance) {
-                is ScreensComponent.Child.LibraryChild -> LibraryContent(component = child.component)
+                is ScreensComponent.Child.BookmarksChild -> BookmarksContent(component = child.component)
                 is ScreensComponent.Child.SourcesChild -> SourcesContent(component = child.component)
+                is ScreensComponent.Child.DownloadsChild -> DownloadsContent(component = child.component)
+                is ScreensComponent.Child.SettingsChild -> SettingsContent(component = child.component)
             }
         }
     }

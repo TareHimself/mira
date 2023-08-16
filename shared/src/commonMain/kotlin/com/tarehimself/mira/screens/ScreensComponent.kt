@@ -16,10 +16,16 @@ import com.arkivanov.essenty.parcelable.Parcelable
 import com.arkivanov.essenty.parcelable.Parcelize
 import com.arkivanov.essenty.statekeeper.consume
 import com.tarehimself.mira.RootComponent
+import com.tarehimself.mira.data.ApiMangaHeader
+import com.tarehimself.mira.data.ApiMangaImage
 import com.tarehimself.mira.data.ApiMangaPreview
-import com.tarehimself.mira.screens.library.DefaultLibraryComponent
-import com.tarehimself.mira.screens.library.LibraryComponent
+import com.tarehimself.mira.screens.bookmarks.DefaultBookmarksComponent
+import com.tarehimself.mira.screens.bookmarks.BookmarksComponent
+import com.tarehimself.mira.screens.sources.DefaultDownloadsComponent
+import com.tarehimself.mira.screens.sources.DefaultSettingsComponent
 import com.tarehimself.mira.screens.sources.DefaultSourcesComponent
+import com.tarehimself.mira.screens.sources.DownloadsComponent
+import com.tarehimself.mira.screens.sources.SettingsComponent
 import com.tarehimself.mira.screens.sources.SourcesComponent
 
 
@@ -33,12 +39,17 @@ interface ScreensComponent {
 
     enum class EActiveScreen {
         Library,
-        Sources
+        Sources,
+        Downloads,
+        Settings
     }
 
     sealed class Child {
-        class LibraryChild(val component: LibraryComponent) : Child()
+        class BookmarksChild(val component: BookmarksComponent) : Child()
         class SourcesChild(val component: SourcesComponent) : Child()
+
+        class DownloadsChild(val component: DownloadsComponent) : Child()
+        class SettingsChild(val component: SettingsComponent) : Child()
     }
 
     @Parcelize
@@ -46,9 +57,13 @@ interface ScreensComponent {
         var activeScreen: EActiveScreen
     ) : Parcelable
 
-    fun showLibrary()
+    fun showBookmarks()
 
     fun showSources()
+
+    fun showDownloads()
+
+    fun showSettings()
 
     val backCallback: BackCallback
 }
@@ -62,6 +77,10 @@ class DefaultScreensComponent(
     private sealed interface Config : Parcelable {
         object Library : Config
         object Sources : Config
+
+        object Downloads : Config
+
+        object Settings : Config
     }
 
 
@@ -78,6 +97,8 @@ class DefaultScreensComponent(
         initialConfiguration = when (state.value.activeScreen) {
             ScreensComponent.EActiveScreen.Library -> Config.Library
             ScreensComponent.EActiveScreen.Sources -> Config.Sources
+            ScreensComponent.EActiveScreen.Downloads -> Config.Downloads
+            ScreensComponent.EActiveScreen.Settings -> Config.Settings
         },
         handleBackButton = true,
         childFactory = ::createChild,
@@ -88,8 +109,10 @@ class DefaultScreensComponent(
         navigation.pop {
             state.update {
                 it.activeScreen = when (stack.active.instance) {
-                    is ScreensComponent.Child.LibraryChild -> ScreensComponent.EActiveScreen.Library
+                    is ScreensComponent.Child.BookmarksChild -> ScreensComponent.EActiveScreen.Library
                     is ScreensComponent.Child.SourcesChild -> ScreensComponent.EActiveScreen.Sources
+                    is ScreensComponent.Child.DownloadsChild -> ScreensComponent.EActiveScreen.Downloads
+                    is ScreensComponent.Child.SettingsChild -> ScreensComponent.EActiveScreen.Settings
                 }
                 it
             }
@@ -103,17 +126,30 @@ class DefaultScreensComponent(
 
     private fun createChild(config: Config, context: ComponentContext): ScreensComponent.Child =
         when (config) {
-            is Config.Library -> ScreensComponent.Child.LibraryChild(libraryComponent(context))
+            is Config.Library -> ScreensComponent.Child.BookmarksChild(bookmarksComponent(context))
             is Config.Sources -> ScreensComponent.Child.SourcesChild(sourcesComponent(context))
+            is Config.Downloads -> ScreensComponent.Child.DownloadsChild(downloadsComponent(context))
+            is Config.Settings -> ScreensComponent.Child.SettingsChild(settingsComponent(context))
         }
 
-    private fun libraryComponent(context: ComponentContext): LibraryComponent =
-        DefaultLibraryComponent(
+    private fun bookmarksComponent(context: ComponentContext): BookmarksComponent =
+        DefaultBookmarksComponent(
             componentContext = context,
             onMangaSelected = {
                 root.navigateToMangaViewer(
                     sourceId = it.sourceId,
-                    preview = ApiMangaPreview(id = it.id, name = it.name, cover = it.cover)
+                    preview = ApiMangaPreview(
+                        id = it.id,
+                        name = it.name,
+                        cover = ApiMangaImage(
+                            src = it.cover!!.src,
+                            headers = it.cover!!.headers.map { header ->
+                                ApiMangaHeader(
+                                    key = header.key,
+                                    value = header.value
+                                )
+                            })
+                    )
                 )
             }
         )
@@ -126,7 +162,17 @@ class DefaultScreensComponent(
             }
         )
 
-    override fun showLibrary() {
+    private fun downloadsComponent(context: ComponentContext): DownloadsComponent =
+        DefaultDownloadsComponent(
+            componentContext = context,
+        )
+
+    private fun settingsComponent(context: ComponentContext): SettingsComponent =
+        DefaultSettingsComponent(
+            componentContext = context,
+        )
+
+    override fun showBookmarks() {
         navigation.bringToFront(Config.Library)
         state.update {
             it.activeScreen = ScreensComponent.EActiveScreen.Library
@@ -138,6 +184,22 @@ class DefaultScreensComponent(
         navigation.bringToFront(Config.Sources)
         state.update {
             it.activeScreen = ScreensComponent.EActiveScreen.Sources
+            it
+        }
+    }
+
+    override fun showDownloads() {
+        navigation.bringToFront(Config.Downloads)
+        state.update {
+            it.activeScreen = ScreensComponent.EActiveScreen.Downloads
+            it
+        }
+    }
+
+    override fun showSettings() {
+        navigation.bringToFront(Config.Settings)
+        state.update {
+            it.activeScreen = ScreensComponent.EActiveScreen.Settings
             it
         }
     }

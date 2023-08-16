@@ -4,18 +4,19 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.material.Surface
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun Pressable(
-    onClick: () -> Unit = {},
-    onLongClick: () -> Unit = {},
-    onDoubleClick: () -> Unit = {},
+    onClick: () -> Unit = { },
+    onLongClick: (() -> Unit)? = null,
+    onDoubleClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
     backgroundColor: Color = Color.Transparent,
     content: @Composable (interactionSource: MutableInteractionSource) -> Unit
@@ -42,9 +43,10 @@ fun Pressable(
             onClick = onClick,
             onLongClick = onLongClick,
             onDoubleClick = onDoubleClick,
-            role = null,
+            role = Role.Button,
             indication = LocalIndication.current,
-            interactionSource = interactionSource
+            interactionSource = interactionSource,
+
         ), color = backgroundColor
     ) {
         content(interactionSource)

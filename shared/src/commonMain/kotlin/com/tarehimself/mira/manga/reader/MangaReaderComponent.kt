@@ -5,7 +5,8 @@ import com.arkivanov.decompose.value.MutableValue
 import com.arkivanov.decompose.value.update
 import com.arkivanov.essenty.lifecycle.Lifecycle
 import com.benasher44.uuid.uuid4
-import com.tarehimself.mira.data.ApiMangaChapterPage
+import com.tarehimself.mira.data.ApiMangaImage
+import com.tarehimself.mira.data.ChapterDownloader
 import com.tarehimself.mira.data.MangaApi
 import com.tarehimself.mira.data.MangaChapter
 import com.tarehimself.mira.data.RealmRepository
@@ -18,6 +19,8 @@ interface MangaReaderComponent : KoinComponent {
     val api: MangaApi
 
     val realmDatabase: RealmRepository
+
+    val chapterDownloader: ChapterDownloader
     suspend fun loadPagesForIndex(chapterIndex: Int): List<ReaderItem<*>>?
 
     suspend fun loadNextChapter()
@@ -28,7 +31,7 @@ interface MangaReaderComponent : KoinComponent {
 
     suspend fun markChapterAsRead(index: Int)
 
-    fun setChapterItemForIndex(index: Int,item: ReaderChapterItem)
+    fun setChapterItemForIndex(index: Int, item: ReaderNetworkChapterItem)
 
     enum class EReaderItemType {
         Page,
@@ -43,21 +46,32 @@ interface MangaReaderComponent : KoinComponent {
         val id: String
     }
 
-    data class ReaderChapterItem(
-        override val data: ApiMangaChapterPage, override val chapterIndex: Int,
-        override val totalPages: Int, val pageIndex: Int
-    ) : ReaderItem<ApiMangaChapterPage> {
+    interface ReaderChapterItem {
+        val pageIndex: Int
+    }
+
+    data class ReaderNetworkChapterItem(
+        override val data: ApiMangaImage, override val chapterIndex: Int,
+        override val totalPages: Int, override val pageIndex: Int
+    ) : ReaderItem<ApiMangaImage>, ReaderChapterItem {
         override val type: EReaderItemType = EReaderItemType.Page
         override val id: String = uuid4().toString()
     }
 
+    data class ReaderLocalChapterItem(
+        override val data: Int, override val chapterIndex: Int,
+        override val totalPages: Int, override val pageIndex: Int
+    ) : ReaderItem<Int>, ReaderChapterItem {
+        override val type: EReaderItemType = EReaderItemType.Page
+        override val id: String = uuid4().toString()
+    }
 
 
     data class ReaderDividerItem(
         override val data: String,
         override val chapterIndex: Int,
         override val totalPages: Int
-    ) : ReaderItem<String>{
+    ) : ReaderItem<String> {
         override val type: EReaderItemType = EReaderItemType.Divider
         override val id: String = uuid4().toString()
     }
@@ -88,16 +102,20 @@ class DefaultMangaReaderComponent(
 
     override val realmDatabase: RealmRepository by inject()
 
+    override val chapterDownloader: ChapterDownloader by inject()
+
     override val state: MutableValue<MangaReaderComponent.State> = MutableValue(
         MangaReaderComponent.State(
             mangaId = mangaId,
             initialChapterIndex = initialChapterIndex,
             chapters = when (realmDatabase.has(sourceId, mangaId)) {
                 true -> {
-                    realmDatabase.getManga(realmDatabase.getMangaKey(
-                        sourceId,
-                        mangaId
-                    )).first().chapters
+                    realmDatabase.getManga(
+                        realmDatabase.getMangaKey(
+                            sourceId,
+                            mangaId
+                        )
+                    ).first().chapters
                 }
 
                 else -> {
@@ -126,48 +144,106 @@ class DefaultMangaReaderComponent(
 
 
     override suspend fun loadPagesForIndex(chapterIndex: Int): List<MangaReaderComponent.ReaderItem<*>>? {
-        val apiResponse = api.getChapter(
-            source = state.value.sourceId,
-            mangaId = state.value.mangaId,
-            chapterId = state.value.chapters[chapterIndex].id
-        )
+        if(state.value.chapters.lastIndex < chapterIndex){
+            return null
+        }
 
-        if (apiResponse.data != null) {
-            val chapter = state.value.chapters[chapterIndex]
-            val result: ArrayList<MangaReaderComponent.ReaderItem<*>> = ArrayList()
-            result.add(
-                MangaReaderComponent.ReaderDividerItem(
-                    data = "Next:\n${chapter.name}",
-                    chapterIndex = chapterIndex,
-                    totalPages = apiResponse.data.size
-                )
+        if (chapterDownloader.isDownloaded(
+                state.value.sourceId,
+                state.value.mangaId,
+                state.value.chapters[chapterIndex].id
             )
-            result.addAll(apiResponse.data.mapIndexed { idx, page ->
-                MangaReaderComponent.ReaderChapterItem(
-                    data = page,
-                    chapterIndex = chapterIndex,
-                    pageIndex = idx,
-                    totalPages = apiResponse.data.size
-                )
-            })
-            result.add(
-                MangaReaderComponent.ReaderDividerItem(
-                    data = "Previous:\n${chapter.name}",
-                    chapterIndex = chapterIndex,
-                    totalPages = apiResponse.data.size
-                )
+        ) {
+            val pagesDownloaded = chapterDownloader.getPagesDownloaded(
+                state.value.sourceId,
+                state.value.mangaId,
+                state.value.chapters[chapterIndex].id
             )
-            if (chapterIndex == 0) {
+
+            if (pagesDownloaded >= 0) {
+                val chapter = state.value.chapters[chapterIndex]
+                val result: ArrayList<MangaReaderComponent.ReaderItem<*>> = ArrayList()
                 result.add(
                     MangaReaderComponent.ReaderDividerItem(
-                        data = "No More Chapters",
-                        chapterIndex = -1,
-                        totalPages = 0
+                        data = "Next:\n${chapter.name}",
+                        chapterIndex = chapterIndex,
+                        totalPages = pagesDownloaded
                     )
                 )
+                for (i in 0 until pagesDownloaded) {
+                    result.add(
+                        MangaReaderComponent.ReaderLocalChapterItem(
+                            data = i,
+                            chapterIndex = chapterIndex,
+                            pageIndex = i,
+                            totalPages = pagesDownloaded
+                        )
+                    )
+                }
+
+                result.add(
+                    MangaReaderComponent.ReaderDividerItem(
+                        data = "Previous:\n${chapter.name}",
+                        chapterIndex = chapterIndex,
+                        totalPages = pagesDownloaded
+                    )
+                )
+                if (chapterIndex == 0) {
+                    result.add(
+                        MangaReaderComponent.ReaderDividerItem(
+                            data = "No More Chapters",
+                            chapterIndex = -1,
+                            totalPages = 0
+                        )
+                    )
+                }
+                return result
             }
-            return result
+        } else {
+            val apiResponse = api.getChapter(
+                source = state.value.sourceId,
+                mangaId = state.value.mangaId,
+                chapterId = state.value.chapters[chapterIndex].id
+            )
+
+            if (apiResponse.data != null) {
+                val chapter = state.value.chapters[chapterIndex]
+                val result: ArrayList<MangaReaderComponent.ReaderItem<*>> = ArrayList()
+                result.add(
+                    MangaReaderComponent.ReaderDividerItem(
+                        data = "Next:\n${chapter.name}",
+                        chapterIndex = chapterIndex,
+                        totalPages = apiResponse.data.size
+                    )
+                )
+                result.addAll(apiResponse.data.mapIndexed { idx, page ->
+                    MangaReaderComponent.ReaderNetworkChapterItem(
+                        data = page,
+                        chapterIndex = chapterIndex,
+                        pageIndex = idx,
+                        totalPages = apiResponse.data.size
+                    )
+                })
+                result.add(
+                    MangaReaderComponent.ReaderDividerItem(
+                        data = "Previous:\n${chapter.name}",
+                        chapterIndex = chapterIndex,
+                        totalPages = apiResponse.data.size
+                    )
+                )
+                if (chapterIndex == 0) {
+                    result.add(
+                        MangaReaderComponent.ReaderDividerItem(
+                            data = "No More Chapters",
+                            chapterIndex = -1,
+                            totalPages = 0
+                        )
+                    )
+                }
+                return result
+            }
         }
+
         return null
     }
 
@@ -267,7 +343,7 @@ class DefaultMangaReaderComponent(
 
     override fun setChapterItemForIndex(
         index: Int,
-        item: MangaReaderComponent.ReaderChapterItem
+        item: MangaReaderComponent.ReaderNetworkChapterItem
     ) {
         state.update {
             it.pages[index] = item

@@ -9,7 +9,7 @@ plugins {
     id("com.android.application").apply(false)
     id("com.android.library").apply(false)
     id("io.realm.kotlin").version("1.8.0").apply(false)
-    id("org.jetbrains.compose").version("1.4.1").apply(false)
+    id("org.jetbrains.compose").version("1.4.3").apply(false)
 
 }
 
