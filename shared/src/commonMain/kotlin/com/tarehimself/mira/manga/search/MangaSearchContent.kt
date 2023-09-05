@@ -1,4 +1,4 @@
-package com.tarehimself.mira.screens.sources
+package com.tarehimself.mira.manga.search
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material.ExperimentalMaterialApi
 import androidx.compose.material3.Scaffold
@@ -24,9 +23,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.arkivanov.decompose.extensions.compose.jetbrains.subscribeAsState
+import com.tarehimself.mira.common.LocalWindowInsets
 import com.tarehimself.mira.common.ui.CategorySelectContent
 import com.tarehimself.mira.common.ui.SearchBarContent
 import com.tarehimself.mira.common.ui.rememberCategorySelectContentState
+import com.tarehimself.mira.common.useTopInsets
 import com.tarehimself.mira.data.rememberCategories
 import com.tarehimself.mira.manga.preview.MangaPreviewContent
 import io.github.aakira.napier.Napier
@@ -73,15 +74,17 @@ fun MangaSearchContent(component: MangaSearchComponent) {
     }
 
     Scaffold(modifier = Modifier.fillMaxSize(), topBar = {
-        Box(modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp, horizontal = 10.dp)) {
-            SearchBarContent(value = state.query, onChanged = {
-                if (it != state.query) {
-                    scope.launch {
-                        scrollState.scrollToItem(0)
+        Box(Modifier.useTopInsets()){
+            Box(modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp, horizontal = 10.dp)) {
+                SearchBarContent(value = state.query, onChanged = {
+                    if (it != state.query) {
+                        scope.launch {
+                            scrollState.scrollToItem(0)
+                        }
+                        component.search(it.trim())
                     }
-                    component.search(it)
-                }
-            })
+                })
+            }
         }
     }) {
         Box(modifier = Modifier.padding(it).fillMaxWidth()) {

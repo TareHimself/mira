@@ -1,15 +1,18 @@
-package com.tarehimself.mira
+package com.tarehimself.mira.common.ui
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.material3.ButtonElevation
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -19,6 +22,7 @@ fun Pressable(
     onDoubleClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
     backgroundColor: Color = Color.Transparent,
+    tonalElevation: Dp =  0.dp,
     content: @Composable (interactionSource: MutableInteractionSource) -> Unit
 ) {
 
@@ -47,7 +51,7 @@ fun Pressable(
             indication = LocalIndication.current,
             interactionSource = interactionSource,
 
-        ), color = backgroundColor
+        ), color = backgroundColor, tonalElevation = tonalElevation
     ) {
         content(interactionSource)
     }

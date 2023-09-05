@@ -11,29 +11,33 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.contentColorFor
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.neverEqualPolicy
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.arkivanov.decompose.extensions.compose.jetbrains.stack.Children
 import com.arkivanov.decompose.extensions.compose.jetbrains.stack.animation.fade
 import com.arkivanov.decompose.extensions.compose.jetbrains.stack.animation.stackAnimation
 import com.arkivanov.decompose.extensions.compose.jetbrains.subscribeAsState
-import com.tarehimself.mira.Pressable
-import com.tarehimself.mira.VectorImage
+import com.tarehimself.mira.common.ui.Pressable
+import com.tarehimself.mira.common.ui.VectorImage
+import com.tarehimself.mira.common.LocalWindowInsets
+import com.tarehimself.mira.common.borderRadius
+import com.tarehimself.mira.common.useBottomInsets
 import com.tarehimself.mira.screens.bookmarks.BookmarksContent
-import com.tarehimself.mira.screens.sources.DownloadsContent
+import com.tarehimself.mira.screens.downloads.DownloadsContent
 import com.tarehimself.mira.screens.settings.SettingsContent
 import com.tarehimself.mira.screens.sources.SourcesContent
 import compose.icons.FontAwesomeIcons
@@ -60,7 +64,7 @@ fun ScreensContentBottomBarItem(
 
 
     Pressable(
-        modifier = Modifier.height(60.dp).width(80.dp).clip(RoundedCornerShape(5.dp)),
+        modifier = Modifier.height(60.dp).width(80.dp).borderRadius(5.dp),
         onClick = onClick
     ) {
         Column(
@@ -80,16 +84,16 @@ fun ScreensContentBottomBarItem(
                     contentDescription = label,
                     modifier = Modifier.size(iconSize),
                     color = when (it) {
-                        true -> Color.White
-                        false -> Color.White.copy(alpha = 0.3f)
+                        true -> LocalContentColor.current
+                        false -> LocalContentColor.current.copy(alpha = 0.3f)
                     }
                 )
             }
             Spacer(modifier = Modifier.height(10.dp))
             Text(
                 label, fontSize = 12.sp, color = when (isActive) {
-                    true -> Color.White
-                    false -> Color.White.copy(alpha = 0.3f)
+                    true -> LocalContentColor.current
+                    false -> LocalContentColor.current.copy(alpha = 0.3f)
                 }
             )
         }
@@ -103,10 +107,12 @@ fun ScreensContent(component: ScreensComponent) {
 
     val state by component.state.subscribeAsState(policy = neverEqualPolicy())
 
+    val insets = LocalWindowInsets.current
+    val density = LocalDensity.current
     Scaffold(modifier = Modifier.fillMaxSize(), bottomBar = {
-        Surface(modifier = Modifier.height(70.dp).fillMaxWidth()) {
-
+        Surface {
             Row(
+                modifier = Modifier.height(70.dp).fillMaxWidth().useBottomInsets(),
                 horizontalArrangement = Arrangement.SpaceAround,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -128,16 +134,6 @@ fun ScreensContent(component: ScreensComponent) {
                     label = "Search",
                     isActive = state.activeScreen == ScreensComponent.EActiveScreen.Sources
                 )
-
-//                ScreensContentBottomBarItem(
-//                    vector = FontAwesomeIcons.Solid.ArrowDown,
-//                    onClick = {
-//                        component.showDownloads()
-//                    },
-//                    label = "Downloads",
-//                    isActive = state.activeScreen == ScreensComponent.EActiveScreen.Downloads
-//                )
-
                 ScreensContentBottomBarItem(
                     vector = FontAwesomeIcons.Solid.Cog,
                     onClick = {

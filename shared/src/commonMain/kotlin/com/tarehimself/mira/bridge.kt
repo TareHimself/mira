@@ -1,31 +1,53 @@
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.ImageBitmap
+import com.tarehimself.mira.common.ECacheType
 import io.ktor.utils.io.ByteReadChannel
 
 expect class ShareBridge {
     companion object {
         fun shareText(data: String)
+
+        suspend fun shareImage(data: ByteArray)
     }
 }
 
 expect class FileBridge {
     companion object {
-        suspend fun cacheCover(key: String,channel: ByteReadChannel)
+        suspend fun cacheItem(key: String, channel: ByteReadChannel, type: ECacheType = ECacheType.Images, maxSize: Long = 0)
 
-        fun getCachedCover(key: String): Pair<ByteReadChannel?,Long>
+        suspend fun clearCache(type: ECacheType = ECacheType.Images)
 
-        suspend fun saveChapterPage(uniqueId: String, chapter: String,page: Int, channel: ByteReadChannel): Boolean
+        suspend fun getCacheSize(type: ECacheType = ECacheType.Images): Long?
 
-        fun isChapterDownloaded(uniqueId: String,chapter: String): Boolean
+        suspend fun getCachedItem(key: String,type: ECacheType = ECacheType.Images): Pair<ByteReadChannel, Long>?
 
-        fun deleteDownloadedChapter(uniqueId: String,chapter: String): Boolean
+        suspend fun getCachedItemPath(key: String,type: ECacheType = ECacheType.Images): String?
 
-        fun getDownloadedChapterPage(uniqueId: String,chapter: String,page: Int): Pair<ByteReadChannel?,Long>
+        suspend fun saveChapterPage(mangaKeyHash: String, chapterIdHash: String, page: Int, channel: ByteReadChannel): Boolean
 
-        fun getDownloadedChapterPagesNum(uniqueId: String,chapter: String): Int
+        fun isChapterDownloaded(mangaKeyHash: String, chapterIdHash: String): Boolean
+
+        fun deleteDownloadedChapter(mangaKeyHash: String, chapterIdHash: String): Boolean
+
+        suspend fun getDownloadedChapterPage(
+            mangaKeyHash: String,
+            chapterIdHash: String,
+            page: Int): Pair<ByteReadChannel, Long>?
+
+        suspend fun getDownloadedChapterPageAsBitmap(
+            mangaKeyHash: String,
+            chapterIdHash: String,
+            page: Int,
+            maxWidth: Int): ImageBitmap?
+
+        fun getDownloadedChapterPagesNum(mangaKeyHash: String, chapterIdHash: String): Int
+
+        suspend fun deleteDownloadedChapters(): Boolean
     }
 }
+
 
 @Composable
 expect fun DropdownMenu(expanded: Boolean, modifier: Modifier = Modifier,onDismissRequest: () -> Unit = {}, content: @Composable() (ColumnScope.() -> Unit))
@@ -36,3 +58,22 @@ expect fun DropdownMenuItem(text: @Composable () -> Unit,
                              modifier: Modifier = Modifier,
                              leadingIcon: @Composable() (() -> Unit)? = null,
                              trailingIcon: @Composable() (() -> Unit)? = null)
+
+
+
+expect fun ByteArray.toImageBitmap(): ImageBitmap?
+
+expect fun ByteArray.toImageBitmap(maxWidth: Int): ImageBitmap?
+
+expect fun ImageBitmap.sizeBytes(): Int
+
+expect fun ImageBitmap.free()
+
+expect fun ImageBitmap.toBytes(): ByteArray
+
+expect fun ImageBitmap.usable(): Boolean
+
+expect suspend fun bitmapFromCache(key: String, type: ECacheType = ECacheType.Images, maxWidth: Int = 0): ImageBitmap?
+
+
+

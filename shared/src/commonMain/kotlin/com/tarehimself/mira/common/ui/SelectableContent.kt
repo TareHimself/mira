@@ -3,14 +3,12 @@ package com.tarehimself.mira.common.ui
 import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
@@ -23,12 +21,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.dp
+import com.tarehimself.mira.common.borderRadius
 import com.tarehimself.mira.common.pxToDp
-import io.github.aakira.napier.Napier
 
 enum class ESelectableContentStatus {
     EXPANDED,
@@ -78,7 +75,6 @@ class SelectableContentState<T>(
     fun select(item: T) {
         if (selectedItems.size < maxSelectedItems.value) {
             selectedItems.add(item)
-            Napier.d { "Selected $item" }
         }
     }
 
@@ -125,7 +121,7 @@ fun <T> SelectableContent(
     modifier: Modifier = Modifier,
     state: SelectableContentState<T> = rememberSelectableContentState(),
     animationSpec: AnimationSpec<Float> = spring(),
-    content: @Composable() (BoxScope.() -> Unit)
+    content: @Composable() (BoxScope.(padding: PaddingValues) -> Unit)
 ) {
 
     val sheetDesiredHeightDp = (state.bottomSheetDesiredHeight.value).pxToDp()
@@ -150,12 +146,11 @@ fun <T> SelectableContent(
 
     Scaffold(
         topBar = {
-            Box() {
+            Box {
                 topBar()
                 Box(
-                    modifier = Modifier.clip(
-                        RoundedCornerShape(bottomStart = 5.dp, bottomEnd = 5.dp)
-                    ).offset(y = topSheetDesiredHeightDp * ((1.0f - sheetVisibilityAlpha) * -1))
+                    modifier = Modifier.borderRadius(bottomStart = 5.dp, bottomEnd = 5.dp)
+                        .offset(y = topSheetDesiredHeightDp * ((1.0f - sheetVisibilityAlpha) * -1))
                         .onGloballyPositioned {
                             state.topSheetDesiredHeight.value = it.size.height
                         }
@@ -168,19 +163,16 @@ fun <T> SelectableContent(
         containerColor = Color.Transparent,
     ) { padding ->
         Box {
-            Box(
-                modifier = Modifier.padding(
+            content(
+                PaddingValues(
                     top = padding.calculateTopPadding(),
                     bottom = padding.calculateBottomPadding() + (sheetDesiredHeightDp * (sheetVisibilityAlpha))
                 )
-            ) {
-                content()
-            }
+            )
             // Bottom sheet
             Box(modifier = Modifier.fillMaxWidth().align(Alignment.BottomCenter)
-                .offset(y = sheetDesiredHeightDp * (1.0f - sheetVisibilityAlpha)).clip(
-                    RoundedCornerShape(topStart = 5.dp, topEnd = 5.dp)
-                ).onGloballyPositioned {
+                .offset(y = sheetDesiredHeightDp * (1.0f - sheetVisibilityAlpha))
+                .borderRadius(topStart = 5.dp, topEnd = 5.dp).onGloballyPositioned {
                     state.bottomSheetDesiredHeight.value = it.size.height
                 }) {
                 Box(modifier = Modifier) {

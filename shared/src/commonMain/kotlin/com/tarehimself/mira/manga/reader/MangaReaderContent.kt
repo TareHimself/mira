@@ -1,11 +1,19 @@
 package com.tarehimself.mira.manga.reader
 
+import FileBridge
+import ShareBridge
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.BoxWithConstraintsScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -18,11 +26,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.ExperimentalMaterialApi
 import androidx.compose.material.ModalBottomSheetLayout
 import androidx.compose.material.ModalBottomSheetValue
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.material.rememberModalBottomSheetState
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -36,21 +45,37 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import bitmapFromCache
 import com.arkivanov.decompose.extensions.compose.jetbrains.subscribeAsState
-import com.tarehimself.mira.Pressable
-import com.tarehimself.mira.VectorImage
-import com.tarehimself.mira.common.ui.AsyncImage
-import com.tarehimself.mira.common.ui.rememberLocalPagePainter
-import com.tarehimself.mira.common.ui.rememberNetworkImagePainter
+import com.tarehimself.mira.common.ECacheType
+import com.tarehimself.mira.common.ui.Pressable
+import com.tarehimself.mira.common.ui.VectorImage
+import com.tarehimself.mira.common.quickHash
+import com.tarehimself.mira.common.ui.AsyncBitmapPainter
+import com.tarehimself.mira.common.ui.AsyncPainter
+import com.tarehimself.mira.common.ui.ErrorContent
+import com.tarehimself.mira.common.ui.rememberBitmapPainter
+import com.tarehimself.mira.common.ui.rememberCustomPainter
+import com.tarehimself.mira.common.ui.rememberNetworkPainter
+import com.tarehimself.mira.data.ImageRepository
 import com.tarehimself.mira.data.rememberIsBookmarked
+import compose.icons.FontAwesomeIcons
 import compose.icons.Octicons
+import compose.icons.fontawesomeicons.Solid
+import compose.icons.fontawesomeicons.solid.Language
 import compose.icons.octicons.Share24
 import io.github.aakira.napier.Napier
-import io.ktor.client.request.header
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.IO
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.koin.compose.koinInject
+import toBytes
 
 
 @Composable
@@ -66,6 +91,196 @@ fun ReaderChapterLoading() {
     }
 }
 
+@Composable
+fun MangaPageLoading(
+    ratioKey: String,
+    constraints: BoxWithConstraintsScope,
+    painter: AsyncBitmapPainter,
+    imageRepository: ImageRepository = koinInject()
+) {
+
+    val modifier = remember {
+        when (val imageRatio = imageRepository.coverRatios[ratioKey]) {
+            is Float -> {
+                Modifier.aspectRatio(imageRatio).fillMaxWidth()
+            }
+
+            else -> {
+                Modifier.width(constraints.maxWidth).height(constraints.maxHeight)
+            }
+        }
+    }
+
+    val progress by painter.progress
+
+    Box(modifier = Modifier.fillMaxWidth().padding(0.dp, 10.dp)) {
+        Box(
+            modifier = modifier
+        ) {
+            Crossfade(progress > 0.1, modifier = Modifier.matchParentSize()) {
+                Box(modifier = Modifier.fillMaxSize()) {
+                    if (it) {
+                        CircularProgressIndicator(
+                            progress, modifier = Modifier.align(
+                                Alignment.Center
+                            )
+                        )
+                    } else {
+                        CircularProgressIndicator(
+                            modifier = Modifier.align(
+                                Alignment.Center
+                            )
+                        )
+                    }
+                }
+            }
+
+        }
+    }
+}
+
+@Composable
+fun MangaChapterPage(
+    component: MangaReaderComponent,
+    itemIndex: Int,
+    page: MangaReaderComponent.ReaderChapterItem<*>,
+    onLongClick: (painter: AsyncBitmapPainter) -> Unit,
+    constraints: BoxWithConstraintsScope,
+    imageRepository: ImageRepository = koinInject()
+) {
+
+    val state by component.state.subscribeAsState(neverEqualPolicy())
+
+    val deviceWidth by imageRepository.deviceWidth
+
+    val asyncPainter = when (page) {
+        is MangaReaderComponent.NetworkChapterItem -> {
+            rememberNetworkPainter(maxWidth = deviceWidth, loadFromExternalCache = { key ->
+                withContext(Dispatchers.IO) {
+                    bitmapFromCache(key, type = ECacheType.Reader)
+                }
+            }, saveToExternalCache = { key, channel ->
+                withContext(Dispatchers.IO) {
+                    FileBridge.cacheItem(key, channel)
+                }
+            }) {
+                fromMangaImage(page.data)
+            }
+        }
+
+        is MangaReaderComponent.LocalChapterItem -> {
+            rememberCustomPainter(loader = {
+                component.loadLocalPageBitmap(page)
+            }, cacheKeyFunction = {
+                page.id
+            }, loaderKeyFunction = {
+                page.id
+            })
+        }
+
+        is MangaReaderComponent.TranslatedChapterItem<*> -> {
+            rememberCustomPainter(loader = {
+                Napier.d { "Loading translated from ${page.id.quickHash()}" }
+                bitmapFromCache(page.id.quickHash(), type = ECacheType.Reader)
+            }, cacheKeyFunction = {
+                page.id
+            }, loaderKeyFunction = {
+                page.id
+            })
+        }
+
+        else -> {
+            rememberBitmapPainter(null)
+        }
+    }
+
+    val imageRatioKey =
+        remember { "${state.sourceId}${state.mangaId}${page.chapterIndex}${page.pageIndex}".quickHash() }
+
+    val painterStatus by asyncPainter.status
+
+
+    Crossfade(painterStatus, animationSpec = tween(500)) {
+        when (it) {
+            AsyncPainter.EAsyncPainterStatus.LOADING -> {
+                MangaPageLoading(
+                    ratioKey = imageRatioKey, painter = asyncPainter, constraints = constraints
+                )
+            }
+
+            AsyncPainter.EAsyncPainterStatus.SUCCESS -> {
+                val painter = asyncPainter.beforePaint()
+                if (painter != null) {
+                    Pressable(modifier = Modifier.fillMaxWidth().padding(0.dp, 10.dp),
+                        onLongClick = {
+                            onLongClick(asyncPainter)
+                        }) {
+                        Box {
+                            Image(
+                                painter = painter,
+                                contentDescription = "Chapter ${page.chapterIndex + 1} Page ${page.pageIndex + 1}",
+                                modifier = Modifier.fillMaxWidth().onGloballyPositioned { layout ->
+
+                                    if (!imageRepository.coverRatios.contains(imageRatioKey)) {
+                                        imageRepository.coverRatios[imageRatioKey] =
+                                            layout.size.width.toFloat() / layout.size.height.toFloat()
+                                    }
+
+                                },
+                                contentScale = ContentScale.FillWidth,
+                            )
+                            Crossfade(
+                                state.translationTasks.contains(itemIndex),
+                                modifier = Modifier.matchParentSize()
+                            ) { shouldShowTranslating ->
+                                if (shouldShowTranslating) {
+                                    Box(
+                                        modifier = Modifier.fillMaxSize().background(
+                                            MaterialTheme.colorScheme.background.copy(
+                                                alpha = 0.6f
+                                            )
+                                        )
+                                    ) {
+                                        Napier.d { "Translating chapter indicator" }
+                                        Column(
+                                            modifier = Modifier.align(Alignment.Center)
+                                                .fillMaxSize(0.8f),
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = Arrangement.Center
+                                        ) {
+                                            Text(
+                                                "Translating",
+                                                textAlign = TextAlign.Center,
+                                                modifier = Modifier.fillMaxWidth()
+                                            )
+                                            Spacer(modifier = Modifier.height(10.dp))
+                                            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                                        }
+
+                                    }
+                                }
+                            }
+
+                        }
+
+                    }
+                }
+
+
+            }
+
+            AsyncPainter.EAsyncPainterStatus.FAIL -> {
+
+                Box(
+                    modifier = Modifier.height(constraints.maxHeight).width(constraints.maxWidth)
+                ) {
+                    ErrorContent("Failed To Load Page")
+                }
+            }
+        }
+    }
+}
+
 
 @OptIn(ExperimentalMaterialApi::class)
 @Composable
@@ -73,10 +288,8 @@ fun MangaReaderContent(component: MangaReaderComponent) {
 
     val state by component.state.subscribeAsState(neverEqualPolicy())
 
-    val sheetState = rememberModalBottomSheetState(
-        initialValue = ModalBottomSheetValue.Hidden,
-        confirmValueChange = { it != ModalBottomSheetValue.HalfExpanded }
-    )
+    val sheetState = rememberModalBottomSheetState(initialValue = ModalBottomSheetValue.Hidden,
+        confirmValueChange = { it != ModalBottomSheetValue.HalfExpanded })
 
     val coroutineScope = rememberCoroutineScope()
 
@@ -84,13 +297,17 @@ fun MangaReaderContent(component: MangaReaderComponent) {
 
     var wasLoading by remember { mutableStateOf(false) }
 
-    var currentChapterPage by remember { mutableStateOf(0) }
+    var currentChapterPageIndex by remember { mutableStateOf(0) }
 
     var currentChapterTotalPages by remember { mutableStateOf(0) }
 
-    var currentBottomSheetTarget by remember { mutableStateOf(-1) }
+    var currentBottomSheetTarget by remember { mutableStateOf<Pair<Int, AsyncBitmapPainter>?>(null) }
 
-    val isBookmarked by rememberIsBookmarked(state.sourceId,state.mangaId)
+    val isBookmarked by rememberIsBookmarked(state.sourceId, state.mangaId)
+
+    var hasScrolledToLast by remember { mutableStateOf(false) }
+
+    var currentChapterIndex by remember { mutableStateOf(state.initialChapterIndex) }
 
     LaunchedEffect(Unit) {
         wasLoading = true
@@ -99,370 +316,297 @@ fun MangaReaderContent(component: MangaReaderComponent) {
 
     // Track if we need to load more pages
     LaunchedEffect(Unit) {
-        var lastPagesNum = state.pages.size
-
         snapshotFlow { scrollState.layoutInfo }.collect { layout ->
+            if (state.chapters.isEmpty()) {
+                return@collect
+            }
+
+            if (state.pages.isEmpty()) {
+                return@collect
+            }
+
             if (layout.visibleItemsInfo.isEmpty()) {
                 return@collect
             }
 
-            if (state.pages.isNotEmpty() && layout.visibleItemsInfo.isNotEmpty()) {
+            if (!hasScrolledToLast) {
+                return@collect
+            }
+
+            // When we are at the bottom of the scroll
+            val lastItemIndex = layout.visibleItemsInfo.last().index
+            if (lastItemIndex >= state.pages.size - 1 && state.pages[lastItemIndex].chapterIndex != 0 && !state.isLoadingNext) { // latest chapter will have index 0
+                wasLoading = true
+                component.loadNextChapter()
+            }
 
 
-                val currentPagesNum = state.pages.size
-
-
-                if (lastPagesNum == 0 && currentPagesNum > 0) {
-
-                    scrollState.scrollToItem(
-                        when (val scrollTarget =
-                            component.realmDatabase.getChaptersRead(
-                                component.realmDatabase.getMangaKey(
-                                    state.sourceId,
-                                    state.mangaId
-                                )
-                            ).firstOrNull()?.current) {
-                            null -> {
-                                1
-                            }
-
-                            else -> {
-                                if ((state.chapters.lastIndex - scrollTarget.index) == state.initialChapterIndex) {
-                                    scrollTarget.progress
-                                } else {
-                                    1
-                                }
-                            }
-                        }
-                    )
-
-                    lastPagesNum = currentPagesNum
-
-                    return@collect
-                }
-
-
-                // When we are at the bottom of the scroll
-                val lastItemIndex = layout.visibleItemsInfo.last().index
-                if (lastItemIndex >= state.pages.size - 1 && state.pages[lastItemIndex].chapterIndex != 0 && !state.isLoadingNext) { // latest chapter will have index 0
-                    wasLoading = true
-                    component.loadNextChapter()
-                }
-
-
-                // When we are at the top of the scroll
-                val firstItemIndex = layout.visibleItemsInfo.first().index
-                if (firstItemIndex == 0 && state.pages[firstItemIndex].chapterIndex != state.chapters.size - 1 && !state.isLoadingPrevious) { // first chapter will have index (size - 1)
-                    wasLoading = true
-                    component.loadPreviousChapter()
-                }
-
-                lastPagesNum = currentPagesNum
+            // When we are at the top of the scroll
+            val firstItemIndex = layout.visibleItemsInfo.first().index
+            if (firstItemIndex == 0 && state.pages[firstItemIndex].chapterIndex != state.chapters.size - 1 && !state.isLoadingPrevious) { // first chapter will have index (size - 1)
+                wasLoading = true
+                component.loadPreviousChapter()
             }
         }
     }
 
     // Track if a chapter has been read
-    LaunchedEffect(state.chapters.isEmpty()) {
-        var currentChapterIndex = state.initialChapterIndex
+    LaunchedEffect(Unit) {
+
         snapshotFlow { scrollState.layoutInfo }.collect { layout ->
+
+            if (state.chapters.isEmpty()) {
+                return@collect
+            }
+
+            if (state.pages.isEmpty()) {
+                return@collect
+            }
 
             if (layout.visibleItemsInfo.isEmpty()) {
                 return@collect
             }
 
-            val lastItemOnPage = layout.visibleItemsInfo.asReversed()
-                .find { it.index < state.pages.size && state.pages[it.index] is MangaReaderComponent.ReaderChapterItem }
+            if (!hasScrolledToLast) {
 
-            if (lastItemOnPage != null) {
+                scrollState.scrollToItem(
+                    when (val scrollTarget = component.realmDatabase.getChaptersRead(
+                        component.realmDatabase.getBookmarkKey(
+                            state.sourceId, state.mangaId
+                        )
+                    ).asFlow().first().obj?.current) {
+                        null -> {
+                            1
+                        }
 
-                val targetIdx = lastItemOnPage.index
-
-
-                val readerItem = state.pages[targetIdx]
-
-                if (readerItem.chapterIndex != -1) {
-
-                    if (readerItem is MangaReaderComponent.ReaderChapterItem) {
-                        val lastPage = currentChapterPage
-                        val lastTotalPages = currentChapterTotalPages
-                        val lastChapterIndex = currentChapterIndex
-                        currentChapterPage = readerItem.pageIndex
-                        currentChapterTotalPages = readerItem.totalPages
-                        currentChapterIndex = readerItem.chapterIndex
-
-                        if(isBookmarked){
-                            if(lastPage != currentChapterPage || lastTotalPages != currentChapterTotalPages || lastChapterIndex != currentChapterIndex){
-                                component.realmDatabase.updateMangaReadInfo(
-                                    state.sourceId,
-                                    state.mangaId,
-                                    state.chapters.lastIndex - currentChapterIndex,
-                                    currentChapterPage + 1,
-                                    currentChapterTotalPages
-                                )
+                        else -> {
+                            if ((state.chapters.lastIndex - scrollTarget.index) == state.initialChapterIndex) {
+                                scrollTarget.progress
+                            } else {
+                                1
                             }
-
-                            if (lastChapterIndex != currentChapterIndex) {
-                                component.realmDatabase.markChapterAsRead(
-                                    state.sourceId,
-                                    state.mangaId,
-                                    state.chapters.lastIndex - lastChapterIndex
-                                )
-                            }
-                            else if(currentChapterPage + 1 == currentChapterTotalPages){
-                                component.realmDatabase.markChapterAsRead(
-                                    state.sourceId,
-                                    state.mangaId,
-                                    state.chapters.lastIndex - currentChapterIndex
-                                )
-                            }
-
                         }
                     }
-                }
+                )
+
+                hasScrolledToLast = true
+                return@collect
             }
+
+
+            val lastItemOnPage = layout.visibleItemsInfo.asReversed()
+                .find { it.index < state.pages.size && state.pages[it.index] is MangaReaderComponent.ReaderChapterItem }
+                ?: return@collect
+
+            val targetChapterItem = state.pages[lastItemOnPage.index]
+
+            if (targetChapterItem !is MangaReaderComponent.ReaderChapterItem) {
+                return@collect
+            }
+
+            val lastPage = currentChapterPageIndex
+            val lastTotalPages = currentChapterTotalPages
+            val lastChapterIndex = currentChapterIndex
+
+            currentChapterPageIndex = targetChapterItem.pageIndex
+            currentChapterTotalPages = targetChapterItem.totalPages
+            currentChapterIndex = targetChapterItem.chapterIndex
+
+            if (!isBookmarked) { // Only show visual tracker if it is not bookmarked
+                return@collect
+            }
+            val isAtLastPage = (currentChapterPageIndex + 1) == currentChapterTotalPages
+            val chapterDelta = currentChapterIndex - lastChapterIndex
+            val pageDelta = currentChapterPageIndex - lastPage
+            val totalPagesDelta = currentChapterTotalPages - lastTotalPages
+
+            if (chapterDelta < 0 || isAtLastPage) {
+                component.realmDatabase.markChapterAsRead(
+                    state.sourceId, state.mangaId, state.chapters.lastIndex - when (isAtLastPage) {
+                        true -> currentChapterIndex
+                        else -> lastChapterIndex
+                    }
+                )
+            } else if (pageDelta != 0 || totalPagesDelta != 0) {
+                component.realmDatabase.updateBookmarkReadInfo(
+                    state.sourceId,
+                    state.mangaId,
+                    state.chapters.lastIndex - currentChapterIndex,
+                    currentChapterPageIndex + 1,
+                    currentChapterTotalPages
+                )
+            }
+
         }
     }
 
-    ModalBottomSheetLayout(
-        sheetState = sheetState,
-        sheetShape = RoundedCornerShape(topStart = 5.dp, topEnd = 5.dp),
-        sheetBackgroundColor = MaterialTheme.colorScheme.surface,
-        sheetContent = {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalAlignment = Alignment.Start,
-                verticalArrangement = Arrangement.SpaceBetween
-            ) {
-                Pressable(modifier = Modifier.fillMaxWidth().height(70.dp), onClick = {
-                    coroutineScope.launch {
-                        if (sheetState.isVisible) {
-                            sheetState.hide()
-                        }
-                    }
-                }) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 20.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        VectorImage(
-                            vector = Octicons.Share24,
-                            contentDescription = "Share",
-                            modifier = Modifier.size(30.dp).align(Alignment.CenterVertically)
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Text(
-                            "Share",
-                            modifier = Modifier.padding(vertical = 20.dp)
-                        )
-                    }
-                }
-//                Pressable(modifier = Modifier.fillMaxWidth(), onClick = {
-//                    coroutineScope.launch {
-//                        if (sheetState.isVisible) {
-//                            Napier.d { "Current Target Index $currentBottomSheetTarget" }
-//                            when (val item = state.pages[currentBottomSheetTarget]) {
-//                                is MangaReaderComponent.ReaderChapterItem -> {
-//                                    val headers = ArrayList(item.data.headers.map {
-//                                        listOf("X-TRANSLATOR-HEADER-${it.first()}", it.last())
-//                                    })
-//                                    headers.add(listOf("X-TRANSLATOR-Target", item.data.src))
-//                                    component.setChapterItemForIndex(
-//                                        currentBottomSheetTarget,
-//                                        item.copy(
-//                                            data = item.data.copy(
-//                                                src = "https://manga-translator.oyintare.dev/translate?id=${item.id}",
-//                                                headers = headers.toList()
-//                                            )
-//                                        )
-//                                    )
-//                                }
-//                            }
-//                            sheetState.hide()
-//                            currentBottomSheetTarget = -1
-//                        }
-//                    }
-//                }) {
-//                    Row(modifier = Modifier.padding(horizontal = 20.dp)) {
-//                        VectorImage(
-//                            vector = FontAwesomeIcons.Solid.Language,
-//                            contentDescription = "Translate",
-//                            modifier = Modifier.size(30.dp).align(Alignment.CenterVertically)
-//                        )
-//                        Spacer(modifier = Modifier.width(10.dp))
-//                        Text(
-//                            "Translate",
-//                            modifier = Modifier.padding(vertical = 20.dp)
-//                        )
-//                    }
-//                }
-            }
-        },
-        modifier = Modifier.fillMaxSize()
-    ) {
+    LaunchedEffect(Unit) {
 
-        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-            val boxWithConstraintsScope = this
-            if (state.pages.isEmpty()) {
-                Box(
-                    modifier = Modifier.fillMaxSize()
+    }
+
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        ModalBottomSheetLayout(
+            sheetState = sheetState,
+            sheetShape = RoundedCornerShape(topStart = 5.dp, topEnd = 5.dp),
+            sheetBackgroundColor = MaterialTheme.colorScheme.surface,
+            sheetContent = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.Start,
+                    verticalArrangement = Arrangement.SpaceBetween
                 ) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.align(
-                            Alignment.Center
-                        )
-                    )
-                }
-            }
 
+                    Pressable(modifier = Modifier.fillMaxWidth().height(70.dp), onClick = {
+                        coroutineScope.launch {
+                            if (sheetState.isVisible) {
+                                currentBottomSheetTarget?.second?.resource?.let {
+                                    ShareBridge.shareImage(it.get().toBytes())
+                                }
 
-            LazyColumn(modifier = Modifier.fillMaxSize(), state = scrollState) {
-
-
-                items(state.pages.size, key = {
-                    state.pages[it].id
-                }) { idx ->
-                    when (val item = state.pages[idx]) {
-                        is MangaReaderComponent.ReaderNetworkChapterItem -> {
-                            Pressable(
-                                modifier = Modifier.fillMaxWidth().padding(0.dp, 10.dp),
-                                onLongClick = {
-                                    if (!sheetState.isVisible) {
-                                        coroutineScope.launch {
-                                            currentBottomSheetTarget = idx
-                                            sheetState.show()
-                                        }
-                                    }
-
-                                }) {
-
-                                AsyncImage(
-                                    painter = rememberNetworkImagePainter(item.data.src) {
-                                        item.data.headers.forEach {
-                                            header(it.key, it.value)
-                                        }
-                                    },
-                                    contentDescription = "Manga Page",
-                                    modifier = Modifier.fillMaxWidth(),
-                                    contentScale = ContentScale.FillWidth,
-                                    onLoading = {
-                                        Box(
-                                            modifier = Modifier.height(boxWithConstraintsScope.maxHeight)
-                                                .width(boxWithConstraintsScope.maxWidth)
-                                        ) {
-                                            CircularProgressIndicator(
-                                                modifier = Modifier.align(
-                                                    Alignment.Center
-                                                )
-                                            )
-                                        }
-                                    },
-                                    onFail = {
-                                        Box(
-                                            modifier = Modifier.height(boxWithConstraintsScope.maxHeight)
-                                                .width(boxWithConstraintsScope.maxWidth)
-                                        ) {
-                                            Text(
-                                                "Failed To Load Page",
-                                                modifier = Modifier.align(
-                                                    Alignment.Center
-                                                )
-                                            )
-                                        }
-                                    })
-
+                                currentBottomSheetTarget = null
+                                sheetState.hide()
                             }
                         }
-
-                        is MangaReaderComponent.ReaderLocalChapterItem -> {
-                            Pressable(
-                                modifier = Modifier.fillMaxWidth().padding(0.dp, 10.dp),
-                                onLongClick = {
-                                    if (!sheetState.isVisible) {
-                                        coroutineScope.launch {
-                                            currentBottomSheetTarget = idx
-                                            sheetState.show()
-                                        }
-                                    }
-
-                                }) {
-
-                                AsyncImage(
-                                    painter = rememberLocalPagePainter(state.sourceId,state.mangaId,state.chapters[item.chapterIndex].id,item.data),
-                                    contentDescription = "Manga Page",
-                                    modifier = Modifier.fillMaxWidth(),
-                                    contentScale = ContentScale.FillWidth,
-                                    onLoading = {
-                                        Box(
-                                            modifier = Modifier.height(boxWithConstraintsScope.maxHeight)
-                                                .width(boxWithConstraintsScope.maxWidth)
-                                        ) {
-                                            CircularProgressIndicator(
-                                                modifier = Modifier.align(
-                                                    Alignment.Center
-                                                )
-                                            )
-                                        }
-                                    },
-                                    onFail = {
-                                        Box(
-                                            modifier = Modifier.height(boxWithConstraintsScope.maxHeight)
-                                                .width(boxWithConstraintsScope.maxWidth)
-                                        ) {
-                                            Text(
-                                                "Failed To Load Page",
-                                                modifier = Modifier.align(
-                                                    Alignment.Center
-                                                )
-                                            )
-                                        }
-                                    })
-
-                            }
+                    }) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 20.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            VectorImage(
+                                vector = Octicons.Share24,
+                                contentDescription = "Share",
+                                modifier = Modifier.size(30.dp).align(Alignment.CenterVertically)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                "Share", modifier = Modifier.padding(vertical = 20.dp)
+                            )
                         }
-
-                        is MangaReaderComponent.ReaderDividerItem -> {
-                            if (state.isLoadingPrevious && idx == 0) {
-                                ReaderChapterLoading()
-                            }
-                            Surface(modifier = Modifier.fillMaxWidth().height(100.dp)) {
-                                Box(
-                                    modifier = Modifier.matchParentSize(),
-                                    contentAlignment = Alignment.Center
+                    }
+                    currentBottomSheetTarget?.let { target ->
+                        val chapterItem = state.pages[target.first]
+                        if (chapterItem !is MangaReaderComponent.TranslatedChapterItem<*> && !state.translationTasks.contains(
+                                target.first
+                            ) && target.second.status.value == AsyncPainter.EAsyncPainterStatus.SUCCESS
+                        ) {
+                            Pressable(modifier = Modifier.fillMaxWidth().height(70.dp), onClick = {
+                                coroutineScope.launch {
+                                    if (sheetState.isVisible) {
+                                        sheetState.hide()
+                                        component.translatePage(target.first)
+                                    }
+                                }
+                            }) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 20.dp),
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
+                                    VectorImage(
+                                        vector = FontAwesomeIcons.Solid.Language,
+                                        contentDescription = "Translate",
+                                        modifier = Modifier.size(30.dp)
+                                            .align(Alignment.CenterVertically)
+                                    )
+                                    Spacer(modifier = Modifier.width(10.dp))
                                     Text(
-                                        item.data,
-                                        modifier = Modifier,
-                                        textAlign = TextAlign.Center
+                                        "Translate", modifier = Modifier.padding(vertical = 20.dp)
                                     )
                                 }
                             }
-                            if (state.isLoadingNext && idx == state.pages.lastIndex) {
-                                ReaderChapterLoading()
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(30.dp))
+                }
+            },
+            modifier = Modifier.fillMaxSize()
+        ) {
+
+            BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                val boxWithConstraintsScope = this
+                if (state.pages.isEmpty() && state.initialLoadError == null) {
+                    Box(
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.align(
+                                Alignment.Center
+                            )
+                        )
+                    }
+                } else if (state.initialLoadError != null) {
+                    ErrorContent("Failed To Load Chapter")
+                }
+
+
+                LazyColumn(modifier = Modifier.fillMaxSize(), state = scrollState) {
+                    items(state.pages.size, key = {
+                        state.pages[it].id
+                    }) { idx ->
+                        when (val item = state.pages[idx]) {
+
+                            is MangaReaderComponent.ReaderChapterItem -> {
+                                MangaChapterPage(
+                                    component = component,
+                                    itemIndex = idx,
+                                    page = item,
+                                    onLongClick = { painter ->
+                                        if (!sheetState.isVisible) {
+                                            coroutineScope.launch {
+                                                currentBottomSheetTarget = Pair(idx, painter)
+                                                sheetState.show()
+                                            }
+                                        }
+
+                                    },
+                                    constraints = boxWithConstraintsScope
+                                )
                             }
+
+                            is MangaReaderComponent.ReaderDividerItem -> {
+                                if (state.isLoadingPrevious && idx == 0) {
+                                    ReaderChapterLoading()
+                                }
+                                Surface(modifier = Modifier.fillMaxWidth().height(100.dp)) {
+                                    Box(
+                                        modifier = Modifier.matchParentSize(),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            item.data,
+                                            modifier = Modifier,
+                                            textAlign = TextAlign.Center
+                                        )
+                                    }
+                                }
+                                if (state.isLoadingNext && idx == state.pages.lastIndex) {
+                                    ReaderChapterLoading()
+                                }
+                            }
+                        }
+                    }
+
+                }
+
+
+                if (state.pages.isNotEmpty() && currentChapterTotalPages > 0) {
+                    Surface(
+                        color = Color.Black.copy(alpha = 0.4f),
+                        modifier = Modifier.fillMaxWidth().align(Alignment.BottomStart)
+                    ) {
+                        Box(modifier = Modifier.padding(vertical = 10.dp)) {
+                            Text(
+                                "${currentChapterPageIndex + 1}/$currentChapterTotalPages",
+                                modifier = Modifier.align(Alignment.Center),
+                                fontSize = 17.sp
+                            )
                         }
                     }
                 }
 
             }
-
-
-            if (state.pages.isNotEmpty() && currentChapterTotalPages > 0) {
-                Surface(
-                    color = Color.Black.copy(alpha = 0.4f),
-                    modifier = Modifier.fillMaxWidth().align(Alignment.BottomStart)
-                ) {
-                    Box(modifier = Modifier.padding(vertical = 10.dp)) {
-                        Text(
-                            "${currentChapterPage + 1}/$currentChapterTotalPages",
-                            modifier = Modifier.align(Alignment.Center),
-                            fontSize = 17.sp
-                        )
-                    }
-                }
-            }
-
         }
     }
+
 
 }

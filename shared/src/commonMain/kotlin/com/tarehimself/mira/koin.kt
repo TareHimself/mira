@@ -5,9 +5,11 @@ import com.tarehimself.mira.data.DefaultChapterDownloader
 import com.tarehimself.mira.data.DefaultImageRepository
 import com.tarehimself.mira.data.DefaultMangaApi
 import com.tarehimself.mira.data.DefaultRealmRepository
+import com.tarehimself.mira.data.DefaultSettingsRepository
 import com.tarehimself.mira.data.ImageRepository
 import com.tarehimself.mira.data.MangaApi
 import com.tarehimself.mira.data.RealmRepository
+import com.tarehimself.mira.data.SettingsRepository
 import io.github.aakira.napier.Napier
 import org.koin.core.context.startKoin
 import org.koin.dsl.KoinAppDeclaration
@@ -36,6 +38,10 @@ val commonModule = module {
 
     single<ChapterDownloader> {
         DefaultChapterDownloader()
+    }
+
+    single<SettingsRepository> {
+        DefaultSettingsRepository()
     }
 
     factory {

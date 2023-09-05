@@ -10,10 +10,13 @@ import com.tarehimself.mira.data.MangaChapter
 import com.tarehimself.mira.data.MangaData
 import com.tarehimself.mira.data.MangaPreview
 import com.tarehimself.mira.data.RealmRepository
-import com.tarehimself.mira.data.StoredMangaExtras
-import com.tarehimself.mira.data.StoredMangaImage
+import com.tarehimself.mira.data.StoredManga
 import io.realm.kotlin.ext.copyFromRealm
-import io.realm.kotlin.ext.toRealmList
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.IO
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.withContext
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 
@@ -86,114 +89,108 @@ class DefaultMangaViewerComponent(
 //    }
 
     override suspend fun loadMangaData(isRefresh: Boolean) {
-        state.update {
-            it.isLoadingData = true
-            it
-        }
+
+        withContext(Dispatchers.IO){
+            state.update {
+                it.isLoadingData = true
+                it
+            }
 
 
-        var loadedData: MangaData?
-        val isBookmarked = realmDatabase.has(state.value.sourceId, state.value.preview.id)
-        val usedStored = !isRefresh && isBookmarked
-        loadedData = if (usedStored) {
-            realmDatabase.getManga(
-                realmDatabase.getMangaKey(
-                    state.value.sourceId,
-                    state.value.preview.id
-                )
-            ).firstOrNull()
-        } else {
-            api.getManga(source = state.value.sourceId, mangaId = state.value.preview.id).data
-        }
-
-        if (loadedData?.let { usedStored && it.status.isEmpty() } != false) {
-            loadedData =
+            var loadedData: MangaData?
+            val isBookmarked = realmDatabase.has(state.value.sourceId, state.value.preview.id)
+            val usedStored = !isRefresh && isBookmarked
+            loadedData = if (usedStored) {
+                realmDatabase.getBookmark(
+                    realmDatabase.getBookmarkKey(
+                        state.value.sourceId,
+                        state.value.preview.id
+                    )
+                ).asFlow().firstOrNull()?.obj
+            } else {
                 api.getManga(source = state.value.sourceId, mangaId = state.value.preview.id).data
-        }
+            }
 
-        if (loadedData != null) {
-            if (isBookmarked) {
-                realmDatabase.updateManga(state.value.sourceId, state.value.preview.id) {
-                    it.name = loadedData.name
-                    it.description = loadedData.description
-                    it.cover = StoredMangaImage(loadedData.cover!!)
-                    it.status = loadedData.status
-                    it.extras = loadedData.extras.map {
-                        StoredMangaExtras().apply {
-                            name = it.name
-                            value = it.value
+            if (loadedData?.let { usedStored && it.status.isEmpty() } != false) {
+                loadedData =
+                    api.getManga(source = state.value.sourceId, mangaId = state.value.preview.id).data
+            }
+
+            if (loadedData != null) {
+                if (isBookmarked && loadedData !is StoredManga) {
+                    realmDatabase.updateBookmark(state.value.sourceId, state.value.preview.id) {
+                        it.updateFromApiData(loadedData)
+
+                        state.update { update ->
+                            update.data = it.copyFromRealm()
+                            update.isLoadingData = false
+                            update
                         }
-                    }.toRealmList()
-                    it.tags = loadedData.tags.toRealmList()
-                    it.share = loadedData.share
-
-                    state.update { update ->
-                        update.data = it.copyFromRealm()
-                        update.isLoadingData = false
-                        update
+                    }
+                } else {
+                    state.update {
+                        it.data = loadedData
+                        it.isLoadingData = false
+                        it
                     }
                 }
             } else {
                 state.update {
-                    it.data = loadedData
                     it.isLoadingData = false
                     it
                 }
-            }
-        } else {
-            state.update {
-                it.isLoadingData = false
-                it
             }
         }
     }
 
     override suspend fun loadChapters(isRefresh: Boolean) {
-        state.update {
-            it.isLoadingChapters = true
-            it
-        }
-
-        var loadedData: List<MangaChapter>?
-        val isBookmarked = realmDatabase.has(state.value.sourceId, state.value.preview.id)
-        val usedStored = !isRefresh && isBookmarked
-
-        loadedData = if (usedStored) {
-            realmDatabase.getManga(
-                realmDatabase.getMangaKey(
-                    state.value.sourceId,
-                    state.value.preview.id
-                )
-            ).firstOrNull()?.chapters
-        } else {
-            api.getChapters(source = state.value.sourceId, mangaId = state.value.preview.id).data
-        }
-
-        if (usedStored && loadedData.isNullOrEmpty()) {
-            loadedData = api.getChapters(
-                source = state.value.sourceId,
-                mangaId = state.value.preview.id
-            ).data
-        }
-
-        if (loadedData != null) {
-            if (isBookmarked) {
-                realmDatabase.updateChapters(
-                    state.value.sourceId,
-                    state.value.preview.id,
-                    loadedData
-                )
-            }
-
+        withContext(Dispatchers.IO){
             state.update {
-                it.chapters = loadedData
-                it.isLoadingChapters = false
+                it.isLoadingChapters = true
                 it
             }
-        } else {
-            state.update {
-                it.isLoadingChapters = false
-                it
+
+            var loadedData: List<MangaChapter>?
+            val isBookmarked = realmDatabase.has(state.value.sourceId, state.value.preview.id)
+            val usedStored = !isRefresh && isBookmarked
+
+            loadedData = if (usedStored) {
+                realmDatabase.getBookmark(
+                    realmDatabase.getBookmarkKey(
+                        state.value.sourceId,
+                        state.value.preview.id
+                    )
+                ).asFlow().first().obj?.chapters
+            } else {
+                api.getChapters(source = state.value.sourceId, mangaId = state.value.preview.id).data
+            }
+
+            if (usedStored && loadedData.isNullOrEmpty()) {
+                loadedData = api.getChapters(
+                    source = state.value.sourceId,
+                    mangaId = state.value.preview.id
+                ).data?.let { it.distinctBy { chap -> chap.id } }
+            }
+
+            if (loadedData != null) {
+                if (isBookmarked && (loadedData.isEmpty() || loadedData.first() is ApiMangaChapter)) {
+                    realmDatabase.updateChapters(
+                        state.value.sourceId,
+                        state.value.preview.id,
+                        loadedData
+                    )
+                }
+
+                state.update {
+                    it.chapters = loadedData
+                    it.isLoadingChapters = false
+                    it
+                }
+            } else {
+                state.update {
+                    it.isLoadingChapters = false
+                    it
+                }
             }
         }
     }
@@ -203,7 +200,7 @@ class DefaultMangaViewerComponent(
             state.value.sourceId, state.value.preview.id, index,
             when (realmDatabase.has(state.value.sourceId, state.value.preview.id)) {
                 true -> listOf() // will be fetched in the reader
-                else -> if (state.value.chapters[0] is ApiMangaChapter) {
+                else -> if (state.value.chapters.first() is ApiMangaChapter) {
                     state.value.chapters as List<ApiMangaChapter>
                 } else {
                     listOf()

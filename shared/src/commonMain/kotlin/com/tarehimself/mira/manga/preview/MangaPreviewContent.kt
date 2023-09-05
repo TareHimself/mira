@@ -1,6 +1,5 @@
 package com.tarehimself.mira.manga.preview
 
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -12,24 +11,17 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
-import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
@@ -37,17 +29,18 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.tarehimself.mira.Pressable
+import com.tarehimself.mira.common.ui.Pressable
 import com.tarehimself.mira.common.Constants
+import com.tarehimself.mira.common.borderRadius
 import com.tarehimself.mira.common.ui.AsyncImage
-import com.tarehimself.mira.common.ui.rememberMangaCoverPainter
+import com.tarehimself.mira.common.ui.ErrorContent
+import com.tarehimself.mira.common.ui.rememberCoverPreviewPainter
 import com.tarehimself.mira.data.ApiMangaPreview
 import com.tarehimself.mira.data.MangaPreview
 import com.tarehimself.mira.data.RealmRepository
 import com.tarehimself.mira.data.StoredManga
 import com.tarehimself.mira.data.rememberIsBookmarked
 import com.tarehimself.mira.data.rememberReadInfo
-import io.ktor.client.request.header
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 
@@ -58,7 +51,6 @@ fun <T> MangaPreviewContent(
     sourceId: String,
     onPressed: () -> Unit = {},
     onLongPressed: ((isBookmarked: Boolean) -> Unit)? = null,
-    selectedState: SnapshotStateList<String>? = null,
     realmRepository: RealmRepository = koinInject()
 ) where T : MangaPreview {
 
@@ -66,20 +58,7 @@ fun <T> MangaPreviewContent(
 
     val coroutineScope = rememberCoroutineScope()
 
-    var isSelected by remember {
-        mutableStateOf(
-            selectedState?.contains(
-                realmRepository.getMangaKey(
-                    sourceId,
-                    data.id
-                )
-            ) ?: false
-        )
-    }
-
     var isBookmarked by rememberIsBookmarked(sourceId, data.id)
-
-    val readInfo = rememberReadInfo(sourceId, data.id)
 
     val isBookmarkedAlpha by animateFloatAsState(
         when (data is ApiMangaPreview && isBookmarked) {
@@ -88,12 +67,6 @@ fun <T> MangaPreviewContent(
         }, animationSpec = tween(200)
     )
 
-    val pressableBackgroundColor by animateColorAsState(
-        when (isSelected) {
-            true -> MaterialTheme.colorScheme.tertiary
-            else -> Color.Transparent
-        }
-    )
 
     val textBackgroundBrush = remember {
         Brush.verticalGradient(
@@ -105,21 +78,14 @@ fun <T> MangaPreviewContent(
         )
     }
 
-    LaunchedEffect(selectedState) {
-        selectedState?.let {
-            snapshotFlow { it.toList() }.collect {
-                isSelected = it.contains(realmRepository.getMangaKey(sourceId, data.id))
-            }
-        }
-    }
 
     Pressable(
         modifier = Modifier.fillMaxSize().padding(2.dp)
-            .clip(shape = RoundedCornerShape(roundedCornerSize))
+            .borderRadius(roundedCornerSize)
             .aspectRatio(Constants.mangaCoverRatio), onClick = {
             onPressed()
         },
-        backgroundColor = pressableBackgroundColor,
+        backgroundColor = Color.Transparent,
         onLongClick = {
             coroutineScope.launch {
                 if (data !is StoredManga) {
@@ -135,15 +101,12 @@ fun <T> MangaPreviewContent(
             }
         }) {
 
-        Box(modifier = Modifier.padding(5.dp).clip(RoundedCornerShape(roundedCornerSize))) {
+        Box(modifier = Modifier.padding(5.dp).borderRadius(roundedCornerSize)) {
             AsyncImage(
-                painter = rememberMangaCoverPainter(
-                    data.cover!!.src,
+                asyncPainter = rememberCoverPreviewPainter(
                     filterQuality = FilterQuality.Low
                 ) {
-                    data.cover!!.headers.forEach {
-                        header(it.key, it.value)
-                    }
+                    this.fromMangaImage(data.cover!!)
                 },
                 contentDescription = "Manga Cover",
                 modifier = Modifier.fillMaxSize(),
@@ -151,10 +114,12 @@ fun <T> MangaPreviewContent(
                 onLoading = {
                     Box(modifier = Modifier.fillMaxSize()) {
                         CircularProgressIndicator(
-                            it.progress.value,
                             modifier = Modifier.align(Alignment.Center)
                         )
                     }
+                },
+                onFail = {
+                    ErrorContent(it.request.hashString)
                 }
             )
 
@@ -170,7 +135,8 @@ fun <T> MangaPreviewContent(
                         modifier = Modifier.fillMaxWidth(),
                         maxLines = 2,
                         fontSize = 12.sp,
-                        overflow = TextOverflow.Ellipsis
+                        overflow = TextOverflow.Ellipsis,
+                        color = Color.White
                     )
                 }
             }
@@ -184,13 +150,12 @@ fun <T> MangaPreviewContent(
             }
 
             if (data is StoredManga) {
+
+                val readInfo by rememberReadInfo(sourceId, data.id)
+
                 if ((data as StoredManga).chapters.size - (readInfo?.read?.size ?: 0) != 0) {
                     Surface(
-                        color = Color.Black.copy(alpha = 0.5f), modifier = Modifier.clip(
-                            shape = RoundedCornerShape(
-                                bottomEnd = 5.dp
-                            )
-                        )
+                        color = Color.Black.copy(alpha = 0.5f), modifier = Modifier.borderRadius(bottomEnd = 5.dp)
                     ) {
                         Text(
                             "${(data as StoredManga).chapters.size - (readInfo?.read?.size ?: 0)}",

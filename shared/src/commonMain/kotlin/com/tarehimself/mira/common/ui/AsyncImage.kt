@@ -5,31 +5,94 @@ import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.painter.BitmapPainter
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.toSize
+import bitmapFromCache
 import com.tarehimself.mira.common.quickHash
 import com.tarehimself.mira.common.readAllInChunks
 import com.tarehimself.mira.common.toChannel
-import com.tarehimself.mira.common.toImageBitmap
 import com.tarehimself.mira.data.ImageRepository
-import com.tarehimself.mira.data.RealmRepository
+import com.tarehimself.mira.data.MangaImage
+import com.tarehimself.mira.data.MiraBitmap
+import com.tarehimself.mira.data.createMiraBitmap
 import io.github.aakira.napier.Napier
 import io.ktor.client.request.HttpRequestBuilder
+import io.ktor.client.request.header
+import io.ktor.client.request.url
+import io.ktor.http.Url
+import io.ktor.utils.io.ByteReadChannel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.withContext
+import org.koin.compose.koinInject
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
+import sizeBytes
+import toImageBitmap
+import kotlin.math.roundToInt
 
-interface AsyncPainter<T : Painter> : KoinComponent {
+class NetworkImageRequest {
+    private var url: String = ""
+    private var headers: ArrayList<Pair<String, String>> = arrayListOf()
+
+    val hashString: String
+        get() = "${url.hashCode()}${headers.joinToString { "[${it.first}|${it.second}]" }}".quickHash()
+
+    private fun addHeader(key: String, value: String) {
+        headers.add(Pair(key, value))
+    }
+
+//    fun updateUrl(url: String) {
+//        this.url = url
+//    }
+
+    fun fromMangaImage(image: MangaImage) {
+        this.url = image.src
+        image.headers.forEach {
+            addHeader(it.key, it.value)
+        }
+    }
+
+    fun toKtorRequest(): HttpRequestBuilder {
+        val self = this
+        return HttpRequestBuilder().apply {
+            url(Url(self.url))
+            self.headers.forEach {
+                header(it.first, it.second)
+            }
+        }
+    }
+
+    override fun hashCode(): Int {
+        return hashString.hashCode()
+    }
+
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other == null || this::class != other::class) return false
+
+        other as NetworkImageRequest
+
+        return this.hashCode() == other.hashCode()
+    }
+}
+
+abstract class AsyncPainter : KoinComponent, Painter() {
 
     enum class EAsyncPainterStatus {
         LOADING,
@@ -37,33 +100,79 @@ interface AsyncPainter<T : Painter> : KoinComponent {
         FAIL
     }
 
-    var painter: MutableState<T?>
-    var status: MutableState<EAsyncPainterStatus>
-
-    suspend fun retry() {
-
-    }
+    val status: MutableState<EAsyncPainterStatus> = mutableStateOf(EAsyncPainterStatus.LOADING)
 
     fun setStatus(status: EAsyncPainterStatus) {
         this.status.value = status
     }
 
-    fun setPainter(painter: T?) {
-        this.painter.value = painter
+    open fun beforePaint(): AsyncPainter? {
+        return null
     }
 
-    fun get(): T? {
-        return this.painter.value
+    open fun onDisposed() {
+
     }
-
-
 }
 
-open class AsyncBitmapPainter : AsyncPainter<BitmapPainter> {
-    override var painter: MutableState<BitmapPainter?> = mutableStateOf(null)
-    override var status: MutableState<AsyncPainter.EAsyncPainterStatus> = mutableStateOf(
-        AsyncPainter.EAsyncPainterStatus.LOADING
-    )
+open class AsyncBitmapPainter : AsyncPainter() {
+    var resource: MiraBitmap? = null
+        set(value) {
+            if (value != null && value.get().height > 0 && value.get().width > 0) {
+                field = value
+                srcSize = IntSize(value.get().width, value.get().height)
+                value.use()
+                setProgress(1.0f)
+                setStatus(EAsyncPainterStatus.SUCCESS)
+            } else {
+                field = null
+                setProgress(0.0f)
+                setStatus(EAsyncPainterStatus.FAIL)
+            }
+        }
+
+    var filterQuality: FilterQuality = FilterQuality.High
+    var alpha: Float = 1.0f
+    private var colorFilter: ColorFilter? = null
+
+    open val abandonOnDispose = true
+
+    private var srcSize: IntSize = IntSize.Zero
+    override val intrinsicSize: Size
+        get() = srcSize.toSize()
+
+    override fun applyAlpha(alpha: Float): Boolean {
+        this.alpha = alpha
+        return true
+    }
+
+    override fun applyColorFilter(colorFilter: ColorFilter?): Boolean {
+        this.colorFilter = colorFilter
+        return true
+    }
+
+    override fun DrawScope.onDraw() {
+        resource?.let { image ->
+
+            if(!image.usable() || size.minDimension == 0.0f){
+                onDisposed()
+                return
+            }
+
+            drawImage(
+                image.get(),
+                IntOffset(0, 0),
+                srcSize,
+                dstSize = IntSize(
+                    this@onDraw.size.width.roundToInt(),
+                    this@onDraw.size.height.roundToInt()
+                ),
+                alpha = alpha,
+                colorFilter = colorFilter,
+                filterQuality = filterQuality
+            )
+        }
+    }
 
     var progress = mutableStateOf(0.0f)
 
@@ -71,274 +180,186 @@ open class AsyncBitmapPainter : AsyncPainter<BitmapPainter> {
         this.progress.value = progress
     }
 
-    override fun setPainter(painter: BitmapPainter?) {
-        super.setPainter(painter)
-        if (painter != null) {
-            setProgress(1.0f)
-            setStatus(AsyncPainter.EAsyncPainterStatus.SUCCESS)
-        } else {
-            if (progress.value > 0.0f) {
-                setStatus(AsyncPainter.EAsyncPainterStatus.FAIL)
+    override fun beforePaint(): AsyncPainter? {
+        return this
+//        return resource?.let {
+//            if(!it.usable()){
+//                onDisposed()
+//                null
+//            }
+//            else
+//            {
+//                srcSize = IntSize(it.get().width, it.get().height)
+//                this
+//            }
+//
+//        }
+    }
+
+    override fun onDisposed() {
+        super.onDisposed()
+        if (abandonOnDispose) {
+            resource?.let {
+                resource = null
+                it.free()
             }
-            setProgress(0.0f)
+        }
+    }
+}
+
+@Composable
+fun rememberBitmapPainter(
+    bitmap: MiraBitmap?,
+    filterQuality: FilterQuality = FilterQuality.High
+): AsyncBitmapPainter {
+
+    val painter = remember(bitmap) {
+        AsyncBitmapPainter().apply {
+            this.filterQuality = filterQuality
         }
     }
 
+    DisposableEffect(painter) {
+        onDispose {
+            painter.onDisposed()
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) {
+            painter.resource = when (bitmap) {
+                is MiraBitmap -> {
+                    bitmap
+                }
+
+                else -> {
+                    null
+                }
+            }
+        }
+    }
+
+    return painter
 }
 
 open class AsyncNetworkPainter : AsyncBitmapPainter() {
-    override var painter: MutableState<BitmapPainter?> = mutableStateOf(null)
 
-    val imageRepository: ImageRepository by inject()
+    override val abandonOnDispose: Boolean = false
 
-    var chunkSize: Int = 1024
+    private val imageRepository: ImageRepository by inject()
 
-    open suspend fun load(
-        url: String,
-        filterQuality: FilterQuality = FilterQuality.High,
-        block: HttpRequestBuilder.() -> Unit = {}
-    ) {
+    var chunkSize: Long = 1024
+
+    var maxWidth: Int = 0
+
+    var loadFromExternalCache: suspend (key: String) -> ImageBitmap? = { null }
+
+    var saveToExternalCache: suspend (key: String, value: ByteReadChannel) -> Unit = { _, _ -> }
+
+    lateinit var request: NetworkImageRequest
+
+    private val memoryCacheKey: String
+        get() = "${maxWidth}${request.hashString}".quickHash()
+
+    open suspend fun load() {
         withContext(Dispatchers.IO) {
-            val bytesChannel = imageRepository.loadHttpImage(url, block)
-            val target = bytesChannel.first
 
-            if (target != null) {
+            imageRepository.cache.getAsync(memoryCacheKey)?.let {
+                resource = it
+                return@withContext
+            }
+
+            loadFromExternalCache(request.hashString)?.let {
+                val miraBitmap = it.createMiraBitmap()
+                imageRepository.cache.put(key = memoryCacheKey, value = miraBitmap)
+                resource = miraBitmap
+                return@withContext
+            }
+
+            val channel = imageRepository.loadHttpImage(0, request.toKtorRequest())
 
 
-                val allBytes: ByteArray = if (bytesChannel.second.toInt() == 0) {
-                    target.readAllInChunks(
+            if (channel != null) {
+                val allBytes: ByteArray = if (channel.second.toInt() == 0) {
+                    channel.first.readAllInChunks(
                         minChunkSize = chunkSize,
                     )
                 } else {
-                    target.readAllInChunks(
-                        bytesChannel.second,
+                    channel.first.readAllInChunks(
+                        channel.second,
                         minChunkSize = chunkSize,
                     ) { total, current ->
                         setProgress(current.toFloat() / total.toFloat())
                     }
                 }
 
-                allBytes.toImageBitmap()?.let { bitmap ->
-                    imageRepository.cache.put(url, bitmap)
+                allBytes.toImageBitmap(maxWidth = maxWidth)?.let { bitmap ->
+                    val miraBitmap = bitmap.createMiraBitmap()
 
-                    setPainter(BitmapPainter(bitmap, filterQuality = filterQuality))
+                    imageRepository.cache.put(memoryCacheKey, miraBitmap)
+                    resource = miraBitmap
+
+                    saveToExternalCache(request.hashString, allBytes.toChannel())
+
                     return@withContext
                 }
             }
-            setStatus(AsyncPainter.EAsyncPainterStatus.FAIL)
+            resource = null
         }
 
+    }
+
+    override fun onDisposed() {
+        super.onDisposed()
+
+        resource?.let { bitmap ->
+            resource = null
+            bitmap.free()
+        }
     }
 }
 
 @Composable
-fun rememberNetworkImagePainter(
-    url: String,
+fun rememberNetworkPainter(
     filterQuality: FilterQuality = FilterQuality.High,
-    chunkSize: Int = 1024,
-    block: HttpRequestBuilder.() -> Unit = {}
+    chunkSize: Long = 2 * 1024 * 1024,
+    maxWidth: Int = koinInject<ImageRepository>().deviceWidth.value,
+    loadFromExternalCache: suspend (key: String) -> ImageBitmap? = { key ->
+        withContext(
+            Dispatchers.IO
+        ) {
+            bitmapFromCache(key, maxWidth = maxWidth)
+        }
+    },
+    saveToExternalCache: suspend (key: String, value: ByteReadChannel) -> Unit = { key, value ->
+        withContext(
+            Dispatchers.IO
+        ) { FileBridge.cacheItem(key, value, maxSize = 500 * 1024 * 1024) }
+    },//700 * 1024 * 1024
+    block: NetworkImageRequest.() -> Unit
 ): AsyncNetworkPainter {
 
-    val painter = remember(url) {
+    val request = NetworkImageRequest().apply(block)
+
+    val painter = remember(request.hashCode()) {
         AsyncNetworkPainter().apply {
             this.chunkSize = chunkSize
-            setPainter(
-                when (val data = this.imageRepository.getCached(url)) {
-                    is ImageBitmap -> {
-                        BitmapPainter(data, filterQuality = filterQuality)
-                    }
-
-                    else -> {
-                        null
-                    }
-                }
-            )
+            this.maxWidth = maxWidth
+            this.loadFromExternalCache = loadFromExternalCache
+            this.saveToExternalCache = saveToExternalCache
+            this.filterQuality = filterQuality
+            this.request = request
         }
     }
 
-    LaunchedEffect(url) {
-        if (painter.painter.value == null) {
-            painter.load(url, filterQuality, block)
+    DisposableEffect(painter) {
+        onDispose {
+            painter.onDisposed()
         }
     }
 
-    return painter
-}
-
-class AsyncMangaCoverPainter : AsyncNetworkPainter() {
-
-    fun getCacheKey(url: String): String{
-        return "$halfScreenWidth|$url"
-    }
-
-    var halfScreenWidth = 500
-
-    override suspend fun load(
-        url: String,
-        filterQuality: FilterQuality,
-        block: HttpRequestBuilder.() -> Unit
-    ) {
-        withContext(Dispatchers.IO){
-            var wasFromDisk: Boolean
-
-            val diskHash = imageRepository.hashData(url)
-            val bytesChannel = run {
-                val diskChannel = FileBridge.getCachedCover(diskHash)
-                wasFromDisk = diskChannel.first != null
-
-                if (!wasFromDisk) {
-                    return@run imageRepository.loadHttpImage(url, block)
-                }
-                diskChannel
-            }
-
-            val target = bytesChannel.first
-
-            if (target != null) {
-
-                val allBytes: ByteArray = if (bytesChannel.second.toInt() == 0) {
-                    target.readAllInChunks(
-                        minChunkSize = chunkSize,
-                    )
-                } else {
-                    target.readAllInChunks(
-                        bytesChannel.second,
-                        minChunkSize = chunkSize,
-                    ) { total, current ->
-                        setProgress(current.toFloat() / total.toFloat())
-                    }
-                }
-
-                allBytes.toImageBitmap(halfScreenWidth)?.let { bitmap ->
-                    imageRepository.cache.put(getCacheKey(url), bitmap)
-
-                    if (!wasFromDisk) {
-                        FileBridge.cacheCover(diskHash, allBytes.toChannel())
-                    }
-
-                    setPainter(BitmapPainter(bitmap, filterQuality = filterQuality))
-                    return@withContext
-                }
-            }
-            setStatus(AsyncPainter.EAsyncPainterStatus.FAIL)
-        }
-    }
-}
-
-@Composable
-fun rememberMangaCoverPainter(
-    url: String,
-    filterQuality: FilterQuality = FilterQuality.High,
-    chunkSize: Int = 1024,
-    block: HttpRequestBuilder.() -> Unit = {}
-): AsyncMangaCoverPainter {
-
-
-    val halfScreenWidth = remember { 512 }
-
-    val painter = remember(url) {
-        AsyncMangaCoverPainter().apply {
-            this.chunkSize = chunkSize
-            this.halfScreenWidth = halfScreenWidth
-            setPainter(
-                when (val data = this.imageRepository.getCached(this.getCacheKey(url))) {
-                    is ImageBitmap -> {
-                        BitmapPainter(data, filterQuality = filterQuality)
-                    }
-
-                    else -> {
-                        null
-                    }
-                }
-            )
-        }
-    }
-
-    LaunchedEffect(url) {
-        if (painter.painter.value == null) {
-            painter.load(url, filterQuality, block)
-        }
-    }
-
-    return painter
-}
-
-class AsyncLocalPagePainter(
-    val sourceId: String,
-    mangaId: String,
-    chapterId: String,
-    private val pageIndex: Int,
-    val chunkSize: Int = 1024
-) : AsyncBitmapPainter() {
-
-    val imageRepository: ImageRepository by inject()
-
-    private val realmRepository: RealmRepository by inject()
-    val uniqueId = realmRepository.getMangaKey(sourceId, mangaId).quickHash()
-    val chapterIdHash = chapterId.quickHash()
-    suspend fun load() {
+    LaunchedEffect(request.hashCode()) {
         withContext(Dispatchers.IO) {
-
-            val data = FileBridge.getDownloadedChapterPage(uniqueId, chapterIdHash, pageIndex)
-            val target = data.first
-            if (target != null && data.second > 0) {
-
-                Napier.d { "Loading chapter" }
-                val allBytes: ByteArray = target.readAllInChunks(
-                    data.second,
-                    minChunkSize = chunkSize
-                ) { total, current ->
-                    setProgress(current.toFloat() / total.toFloat())
-                }
-
-                allBytes.toImageBitmap()?.let {bitmap ->
-                    imageRepository.cache.put(uniqueId + chapterIdHash + pageIndex, bitmap)
-
-                    Napier.d { "Done Loading chapter" }
-
-                    setPainter(BitmapPainter(bitmap, filterQuality = FilterQuality.High))
-                    return@withContext
-                }
-            }
-            setStatus(AsyncPainter.EAsyncPainterStatus.FAIL)
-        }
-    }
-}
-
-@Composable
-fun rememberLocalPagePainter(
-    sourceId: String,
-    mangaId: String,
-    chapterId: String,
-    pageIndex: Int,
-    chunkSize: Int = 1024
-): AsyncLocalPagePainter {
-
-    val painter = remember(sourceId, mangaId, chapterId, pageIndex, chunkSize) {
-        AsyncLocalPagePainter(
-            sourceId = sourceId,
-            mangaId = mangaId,
-            chapterId = chapterId,
-            pageIndex = pageIndex,
-            chunkSize = chunkSize
-        ).apply {
-            setPainter(
-                when (val data =
-                    this.imageRepository.getCached(uniqueId + chapterIdHash + pageIndex)) {
-                    is ImageBitmap -> {
-                        BitmapPainter(data, filterQuality = FilterQuality.High)
-                    }
-
-                    else -> {
-                        null
-                    }
-                }
-            )
-        }
-    }
-
-    LaunchedEffect(painter) {
-        if (painter.painter.value == null) {
             painter.load()
         }
     }
@@ -348,8 +369,116 @@ fun rememberLocalPagePainter(
 
 
 @Composable
-fun <T : AsyncPainter<*>> AsyncImage(
-    painter: T,
+fun rememberCoverPreviewPainter(
+    filterQuality: FilterQuality = FilterQuality.High,
+    chunkSize: Long = 1024,
+    block: NetworkImageRequest.() -> Unit
+): AsyncNetworkPainter {
+
+
+    return rememberNetworkPainter(
+        filterQuality = filterQuality,
+        chunkSize = chunkSize,
+        maxWidth = koinInject<ImageRepository>().deviceWidth.value / 2,
+        block = block
+    )
+}
+
+@Composable
+fun rememberCoverPainter(
+    filterQuality: FilterQuality = FilterQuality.High,
+    chunkSize: Long = 1024,
+    block: NetworkImageRequest.() -> Unit
+): AsyncNetworkPainter {
+
+    return rememberNetworkPainter(
+        filterQuality = filterQuality,
+        chunkSize = chunkSize,
+        maxWidth = koinInject<ImageRepository>().deviceWidth.value,
+        block = block
+    )
+}
+
+class AsyncCustomPainter(val loader: suspend () -> ImageBitmap?,cacheKeyFunction: () -> String?) : AsyncBitmapPainter() {
+
+    override val abandonOnDispose: Boolean = false
+
+    private val imageRepository: ImageRepository by inject()
+
+
+    private val cacheKey = cacheKeyFunction()
+
+    suspend fun load() {
+        withContext(Dispatchers.IO) {
+
+            cacheKey?.let { key ->
+                imageRepository.cache.getAsync(key)?.let {
+                    resource = it
+                    return@withContext
+                }
+            }
+
+            loader()?.let { bitmap ->
+                val miraBitmap = bitmap.createMiraBitmap()
+
+
+                cacheKey?.let {
+                    imageRepository.cache.put(it,miraBitmap)
+                }
+
+                resource = miraBitmap
+
+                Napier.d { "Bitmap with size ${miraBitmap.get().width} ${miraBitmap.get().height} ${miraBitmap.get().sizeBytes() / 1024}" }
+                return@withContext
+            }
+
+            resource = null
+        }
+    }
+
+    override fun onDisposed() {
+        super.onDisposed()
+        resource?.let { bitmap ->
+            resource = null
+            bitmap.free()
+        }
+    }
+}
+
+@Composable
+fun rememberCustomPainter(
+    loader: suspend () -> ImageBitmap?,
+    cacheKeyFunction: () -> String? = { null },
+    loaderKeyFunction: () -> String? = { null }
+): AsyncCustomPainter {
+
+    val painter = remember(loaderKeyFunction()) {
+        AsyncCustomPainter(
+            loader = loader,
+            cacheKeyFunction = cacheKeyFunction,
+        )
+    }
+
+    LaunchedEffect(painter) {
+        withContext(Dispatchers.IO) {
+            painter.load()
+        }
+    }
+
+    DisposableEffect(painter) {
+        onDispose {
+            Napier.d { "Local Painter Disposed" }
+            painter.onDisposed()
+        }
+    }
+
+    return painter
+}
+
+
+@Composable
+fun <T : AsyncPainter> AsyncImage(
+    asyncPainter: T,
     contentDescription: String,
     contentScale: ContentScale = ContentScale.None,
     crossFadeDuration: Int = 500,
@@ -358,30 +487,22 @@ fun <T : AsyncPainter<*>> AsyncImage(
     onFail: (@Composable (painter: T) -> Unit) = { }
 ) {
 
-    val asyncPainter: T = remember { painter }
 
-    Crossfade(asyncPainter.status.value, animationSpec = tween(crossFadeDuration)) {
+    val status by remember(asyncPainter) { asyncPainter.status }
+
+    Crossfade(status, animationSpec = tween(crossFadeDuration)) {
         when (it) {
             AsyncPainter.EAsyncPainterStatus.LOADING -> {
                 onLoading(asyncPainter)
             }
 
             AsyncPainter.EAsyncPainterStatus.SUCCESS -> {
-                when (val resultingPainter = asyncPainter.get()) {
-                    null -> {
-
-                    }
-
-                    else -> {
-                        Image(
-                            painter = resultingPainter,
-                            contentDescription = contentDescription,
-                            modifier = modifier,
-                            contentScale = contentScale
-                        )
-                    }
-                }
-
+                Image(
+                    painter = asyncPainter,
+                    contentDescription = contentDescription,
+                    modifier = modifier,
+                    contentScale = contentScale
+                )
             }
 
             AsyncPainter.EAsyncPainterStatus.FAIL -> {

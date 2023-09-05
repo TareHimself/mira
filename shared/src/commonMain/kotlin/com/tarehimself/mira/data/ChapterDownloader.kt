@@ -6,7 +6,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.snapshotFlow
 import com.tarehimself.mira.common.quickHash
 import io.github.aakira.napier.Napier
@@ -18,13 +17,13 @@ import io.ktor.http.HttpStatusCode
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.IO
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.cancellable
 import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.newSingleThreadContext
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.koin.compose.koinInject
 import org.koin.core.component.KoinComponent
@@ -105,6 +104,8 @@ interface ChapterDownloader : KoinComponent {
     fun getPagesDownloaded(sourceId: String,mangaId: String,chapterId: String): Int
 
     suspend fun deleteChapter(sourceId: String,mangaId: String,chapterId: String): Boolean
+
+    suspend fun deleteAllChapters(): Boolean
 }
 
 class DefaultChapterDownloader() : ChapterDownloader {
@@ -149,7 +150,7 @@ class DefaultChapterDownloader() : ChapterDownloader {
                     }
 
                     val uniqueId =
-                        realmRepository.getMangaKey(job.sourceId, job.mangaId).quickHash()
+                        realmRepository.getBookmarkKey(job.sourceId, job.mangaId).quickHash()
                     val chapterHash = job.chapterId.quickHash()
 
                     withChapterDownload(uniqueId, chapterHash, onException = {
@@ -230,23 +231,29 @@ class DefaultChapterDownloader() : ChapterDownloader {
 
     override fun isDownloaded(sourceId: String, mangaId: String, chapterId: String): Boolean {
         return FileBridge.isChapterDownloaded(
-            realmRepository.getMangaKey(sourceId, mangaId).quickHash(), chapterId.quickHash()
+            realmRepository.getBookmarkKey(sourceId, mangaId).quickHash(), chapterId.quickHash()
         )
     }
 
     override fun isDownloaded(job: ChapterDownloadJob): Boolean {
         return FileBridge.isChapterDownloaded(
-            realmRepository.getMangaKey(job.sourceId, job.mangaId).quickHash(),
+            realmRepository.getBookmarkKey(job.sourceId, job.mangaId).quickHash(),
             job.chapterId.quickHash()
         )
     }
 
     override fun getPagesDownloaded(sourceId: String, mangaId: String, chapterId: String): Int {
-        return FileBridge.getDownloadedChapterPagesNum(realmRepository.getMangaKey(sourceId, mangaId).quickHash(),chapterId.quickHash())
+        return FileBridge.getDownloadedChapterPagesNum(realmRepository.getBookmarkKey(sourceId, mangaId).quickHash(),chapterId.quickHash())
     }
 
     override suspend fun deleteChapter(sourceId: String, mangaId: String, chapterId: String): Boolean {
-        val result = FileBridge.deleteDownloadedChapter(realmRepository.getMangaKey(sourceId, mangaId).quickHash(),chapterId.quickHash())
+        val result = FileBridge.deleteDownloadedChapter(realmRepository.getBookmarkKey(sourceId, mangaId).quickHash(),chapterId.quickHash())
+        queueUpdated()
+        return result
+    }
+
+    override suspend fun deleteAllChapters(): Boolean {
+        val result = FileBridge.deleteDownloadedChapters()
         queueUpdated()
         return result
     }
@@ -269,13 +276,16 @@ fun rememberChapterDownloadState(
 
 
     val downloadState = remember(sourceId, mangaId, chapterId) {
-        mutableStateOf(Pair(when(chapterDownloader.isDownloaded(sourceId,mangaId,chapterId)){
-            true -> EChapterDownloadState.DOWNLOADED
-            else -> EChapterDownloadState.NONE
-        }, 0.0f))
+        mutableStateOf(Pair(EChapterDownloadState.NONE, 0.0f))
     }
 
     LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO){
+            downloadState.value = downloadState.value.copy(first = when(chapterDownloader.isDownloaded(sourceId,mangaId,chapterId)){
+                true -> EChapterDownloadState.DOWNLOADED
+                else -> EChapterDownloadState.NONE
+            })
+        }
         val job = ChapterDownloadJob(
             sourceId = sourceId,
             mangaId = mangaId,

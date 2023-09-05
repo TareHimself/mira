@@ -81,15 +81,6 @@ kotlin {
                 implementation("io.insert-koin:koin-core:3.4.2")
                 implementation("io.insert-koin:koin-compose:1.0.3")
 
-
-
-
-//                // https://github.com/Kamel-Media/Kamel#loading-an-image-resource
-//                implementation("media.kamel:kamel-image:0.7.1")
-
-                // InsetsX https://github.com/mori-atsushi/insetsx
-                implementation("com.moriatsushi.insetsx:insetsx:0.1.0-alpha10")
-
                 // Logging https://github.com/AAkira/Napier
                 implementation("io.github.aakira:napier:2.6.1")
 
@@ -105,7 +96,7 @@ kotlin {
                 implementation("com.squareup.okio:okio:$okioVersion")
 
                 // https://github.com/russhwolf/multiplatform-settings
-                implementation("com.russhwolf:multiplatform-settings:1.0.0")
+                implementation("com.russhwolf:multiplatform-settings-no-arg:1.0.0")
             }
         }
 

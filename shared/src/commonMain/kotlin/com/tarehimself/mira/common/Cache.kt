@@ -1,56 +1,102 @@
 package com.tarehimself.mira.common
 
-import io.github.aakira.napier.Napier
+import androidx.compose.runtime.mutableStateOf
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.IO
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlin.coroutines.coroutineContext
 
 open class Cache<KeyType,ValueType>(
     private val maxSize: Float = Float.MAX_VALUE,
-    val sizeOf: (ValueType) -> Float = { 1.0f }
+    val sizeOf: (value: ValueType) -> Float = { 1.0f },
+    val onItemRemoved: (key: KeyType,value: ValueType) -> Unit = { _,_ -> },
+    val onItemAdded: (key: KeyType,value: ValueType) -> Unit = { _,_ -> },
+    val onFailedToAddItem: (key: KeyType,value: ValueType) -> Unit = { _,_ -> }
 ) {
-    var currentSize = 0.0f
+    val size = mutableStateOf(0.0f)
 
-    open  var hashmap: HashMap<KeyType,ValueType> = HashMap()
-    open  var accessLog: LinkedHashSet<KeyType> = LinkedHashSet()
-    private val accessLogMutex: Mutex = Mutex()
+    var hashmap: HashMap<KeyType,ValueType> = HashMap()
 
-    open fun contains(key: KeyType): Boolean{
+    var usage: LinkedHashSet<KeyType> = LinkedHashSet()
+
+
+    private val mutex: Mutex = Mutex()
+
+    fun contains(key: KeyType): Boolean{
         return hashmap.contains(key)
     }
 
-    open operator fun get(key: KeyType): ValueType?{
-        return hashmap[key]
+    fun containsValue(value: ValueType): Boolean{
+        return hashmap.containsValue(value)
+    }
+
+    fun containsValueWithLock(value: ValueType,result: (contains: Boolean) -> Unit){
+        val scope = CoroutineScope(Dispatchers.IO)
+        scope.launch {
+            mutex.withLock {
+                result(containsValue(value))
+            }
+        }
+    }
+
+    operator fun get(key: KeyType): ValueType?{
+        return runBlocking {
+            getAsync(key)
+        }
+    }
+
+    suspend fun getAsync(key: KeyType): ValueType ? {
+        mutex.withLock {
+            if(contains(key)){
+                usage.remove(key)
+                usage.add(key)
+            }
+            return hashmap[key]
+        }
     }
 
     suspend fun put(key: KeyType, value: ValueType): Boolean{
-        val newItemSize = sizeOf(value)
-        accessLogMutex.withLock {
+        mutex.withLock {
+
+            val newItemSize = sizeOf(value)
 
             if(newItemSize > maxSize){
+                onFailedToAddItem(key,value)
                 return false
             }
 
-            if(accessLog.contains(key)){
-                accessLog.remove(key)
-                currentSize -= sizeOf(hashmap[key]!!)
-                hashmap.remove(key)
+            if(usage.contains(key)){
+                usage.remove(key)
+                size.value -= sizeOf(hashmap[key]!!)
+                hashmap.remove(key)?.let {
+                    onItemRemoved(key,it)
+                }
             }
 
-            while((currentSize + newItemSize) > maxSize){
-                val toRemove = accessLog.firstOrNull()
+            while((size.value + newItemSize) > maxSize){
+                val toRemove = usage.firstOrNull()
                 if(toRemove === null){
                     return false
                 }
-                accessLog.remove(toRemove)
-                currentSize -= sizeOf(hashmap[toRemove]!!)
-                hashmap.remove(toRemove)
+                usage.remove(toRemove)
+                size.value -= sizeOf(hashmap[toRemove]!!)
+                hashmap.remove(toRemove)?.let {
+                    onItemRemoved(toRemove,it)
+                }
+
             }
 
 
-            accessLog.add(key)
+            usage.add(key)
             hashmap[key] = value
-            currentSize += newItemSize
+            size.value += newItemSize
+
+            onItemAdded(key,value)
 
             return true
         }
@@ -69,23 +115,17 @@ open class Cache<KeyType,ValueType>(
     val keys get(): MutableSet<KeyType>{
         return hashmap.keys
     }
-}
 
-//data class TimedValue<ValueType>(val value: ValueType,val time: Long)
-//open class TimedCache<KeyType,ValueType>(inMaxSize: Int = Int.MAX_VALUE,inMaxCacheTime) : Cache<KeyType,TimedValue<ValueType>>(inMaxSize=inMaxSize){
-//
-//    val maxCacheTime = inMaxCacheTime
-//
-//    fun now(){
-//
-//    }
-//    override operator fun get(key: KeyType): ValueType?{
-//
-//        return hashmap[key]
-//    }
-//    operator fun set(key: KeyType, value: ValueType){
-//
-//        super.set(key, TimedValue(value, ))
-//    }
-//}
+    suspend fun clear(){
+        mutex.withLock {
+            usage.forEach {
+                hashmap.remove(it)?.let { value ->
+                    onItemRemoved(it,value)
+                }
+            }
+            usage.clear()
+            size.value = 0.0f
+        }
+    }
+}
 

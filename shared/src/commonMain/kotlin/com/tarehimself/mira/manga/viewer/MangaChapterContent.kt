@@ -15,12 +15,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.contentColorFor
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -30,14 +31,15 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.tarehimself.mira.Pressable
-import com.tarehimself.mira.VectorImage
+import com.tarehimself.mira.common.ui.Pressable
+import com.tarehimself.mira.common.ui.VectorImage
+import com.tarehimself.mira.common.borderRadius
+import com.tarehimself.mira.common.brightness
 import com.tarehimself.mira.common.pxToDp
 import com.tarehimself.mira.common.ui.SlidableContent
 import com.tarehimself.mira.data.ChapterDownloader
@@ -46,15 +48,12 @@ import com.tarehimself.mira.data.MangaChapter
 import com.tarehimself.mira.data.StoredChapterReadInfo
 import com.tarehimself.mira.data.StoredChaptersRead
 import com.tarehimself.mira.data.rememberChapterDownloadState
-import com.tarehimself.mira.data.rememberReadInfo
 import compose.icons.FontAwesomeIcons
 import compose.icons.fontawesomeicons.Solid
 import compose.icons.fontawesomeicons.solid.ArrowDown
 import compose.icons.fontawesomeicons.solid.Check
 import compose.icons.fontawesomeicons.solid.Clock
-import compose.icons.fontawesomeicons.solid.Pen
 import compose.icons.fontawesomeicons.solid.Trash
-import io.github.aakira.napier.Napier
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 
@@ -68,6 +67,7 @@ fun MangaChapterContent(
     selectedState: SnapshotStateList<Int>,
     onChapterSelected: (data: MangaChapter) -> Unit,
     onChapterLongPressed: (data: MangaChapter) -> Unit,
+    readInfoState: MutableState<StoredChaptersRead?>,
     downloader: ChapterDownloader = koinInject()
 ) {
 
@@ -79,13 +79,12 @@ fun MangaChapterContent(
 
     val itemWidthDp = itemWidth.pxToDp()
 
-    var isSelected by remember { mutableStateOf(selectedState.contains(selectionIdx)) }
+    var isSelected by remember(selectionIdx,selectedState) { mutableStateOf(selectedState.contains(selectionIdx)) }
 
-    val readInfo =
-        rememberReadInfo(component.state.value.sourceId, component.state.value.preview.id)
+    val readInfo by readInfoState
 
     val hasBeenRead =
-        remember(index, total, readInfo) { readInfo?.read?.contains(selectionIdx) == true }
+        remember(readInfo,selectionIdx) { readInfo?.read?.contains(selectionIdx) == true }
 
     val backgroundColor by animateColorAsState(
         when (isSelected) {
@@ -117,9 +116,7 @@ fun MangaChapterContent(
 
     SlidableContent(modifier = Modifier.fillMaxWidth().height(itemHeight), background = {
         if (downloadState.first == EChapterDownloadState.DOWNLOADED) {
-            val pressableModifier = Modifier.fillMaxHeight().aspectRatio(1.0f).clip(
-                RoundedCornerShape(5.dp)
-            )
+            val pressableModifier = Modifier.fillMaxHeight().aspectRatio(1.0f).borderRadius(5.dp)
 
             Pressable(
                 modifier = Modifier.then(pressableModifier),
@@ -168,11 +165,9 @@ fun MangaChapterContent(
                             fontSize = 15.sp,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
-                            color = remember(hasBeenRead, isSelected) {
-                                when (hasBeenRead && !isSelected) {
-                                    true -> Color.DarkGray
-                                    else -> Color.White
-                                }
+                            color = when (hasBeenRead && !isSelected) {
+                                true -> contentColorFor(backgroundColor).brightness(0.5f)
+                                else -> contentColorFor(backgroundColor)
                             }
                         )
                         Row {
@@ -186,7 +181,8 @@ fun MangaChapterContent(
                                 fontSize = 10.sp,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
-                                color = Color.DarkGray
+                                color = contentColorFor(backgroundColor).brightness(0.5f)
+//                                color = Color.DarkGray
                             )
                             when (val currentPage = readInfo?.current) {
                                 is StoredChapterReadInfo -> {
@@ -197,14 +193,16 @@ fun MangaChapterContent(
                                             fontSize = 10.sp,
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis,
-                                            color = Color.DarkGray
+                                            color = contentColorFor(backgroundColor).brightness(0.5f)
+//                                            color = Color.DarkGray
                                         )
                                         Text(
                                             "Page ${currentPage.progress}",
                                             fontSize = 10.sp,
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis,
-                                            color = Color.DarkGray
+                                            color = contentColorFor(backgroundColor).brightness(0.5f)
+//                                            color = Color.DarkGray
                                         )
                                     }
                                 }
@@ -221,18 +219,18 @@ fun MangaChapterContent(
 
                 if (!isSelected) {
                     Box {
-                        Pressable(modifier = Modifier.fillMaxHeight(0.6f).aspectRatio(1.0f).clip(
-                            RoundedCornerShape(50.dp)
-                        ), onClick = {
-                            coroutineScope.launch {
-                                downloader.downloadChapter(
-                                    component.state.value.sourceId,
-                                    component.state.value.preview.id,
-                                    data.id,
-                                    "${component.state.value.preview.name} | ${data.name}"
-                                )
-                            }
-                        }) {
+                        Pressable(
+                            modifier = Modifier.fillMaxHeight(0.6f).aspectRatio(1.0f)
+                                .borderRadius(5.dp), onClick = {
+                                coroutineScope.launch {
+                                    downloader.downloadChapter(
+                                        component.state.value.sourceId,
+                                        component.state.value.preview.id,
+                                        data.id,
+                                        "${component.state.value.preview.name} | ${data.name}"
+                                    )
+                                }
+                            }) {
                             Crossfade(downloadState.first, modifier = Modifier.fillMaxSize()) {
                                 Box(modifier = Modifier.fillMaxSize()) {
                                     when (it) {
@@ -241,7 +239,8 @@ fun MangaChapterContent(
                                                 vector = FontAwesomeIcons.Solid.ArrowDown,
                                                 modifier = Modifier.align(Alignment.Center)
                                                     .fillMaxSize(0.5f),
-                                                contentDescription = "Download Chapter"
+                                                contentDescription = "Download Chapter",
+                                                color = contentColorFor(backgroundColor)
                                             )
                                         }
 
@@ -250,7 +249,8 @@ fun MangaChapterContent(
                                                 vector = FontAwesomeIcons.Solid.Clock,
                                                 modifier = Modifier.align(Alignment.Center)
                                                     .fillMaxSize(0.5f),
-                                                contentDescription = "Download Chapter"
+                                                contentDescription = "Download Chapter",
+                                                color = contentColorFor(backgroundColor)
                                             )
                                             CircularProgressIndicator(
                                                 modifier = Modifier.align(Alignment.Center)
@@ -264,7 +264,8 @@ fun MangaChapterContent(
                                                 vector = FontAwesomeIcons.Solid.Clock,
                                                 modifier = Modifier.align(Alignment.Center)
                                                     .fillMaxSize(0.5f),
-                                                contentDescription = "Download Chapter"
+                                                contentDescription = "Download Chapter",
+                                                color = contentColorFor(backgroundColor)
                                             )
                                             CircularProgressIndicator(
                                                 modifier = Modifier.align(Alignment.Center)
@@ -279,7 +280,8 @@ fun MangaChapterContent(
                                                 vector = FontAwesomeIcons.Solid.Check,
                                                 modifier = Modifier.align(Alignment.Center)
                                                     .fillMaxSize(0.5f),
-                                                contentDescription = "Download Chapter"
+                                                contentDescription = "Download Chapter",
+                                                color = contentColorFor(backgroundColor)
                                             )
                                         }
                                     }

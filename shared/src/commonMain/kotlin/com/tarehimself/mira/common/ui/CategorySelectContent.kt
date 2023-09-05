@@ -28,6 +28,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
@@ -37,15 +38,12 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import com.tarehimself.mira.Pressable
-import com.tarehimself.mira.VectorImage
+import com.tarehimself.mira.common.borderRadius
 import com.tarehimself.mira.data.RealmRepository
+import com.tarehimself.mira.data.StoredManga
 import com.tarehimself.mira.data.StoredMangaCategory
-import com.tarehimself.mira.data.rememberIsBookmarked
-import com.tarehimself.mira.data.rememberMangaCategories
 import compose.icons.FontAwesomeIcons
 import compose.icons.fontawesomeicons.Solid
 import compose.icons.fontawesomeicons.solid.ChevronDown
@@ -55,6 +53,7 @@ import compose.icons.fontawesomeicons.solid.Plus
 import compose.icons.fontawesomeicons.solid.Trash
 import io.github.aakira.napier.Napier
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 import org.koin.core.component.KoinComponent
@@ -71,23 +70,33 @@ enum class ECategorySelectStatus {
 @Stable
 class CategorySelectContentState constructor(
     val sheetState: ModalBottomSheetState,
-    val sourceId: MutableState<String>,
-    val mangaId: MutableState<String>,
+    val sourceAndMangaId: MutableState<Pair<String,String>>,
     val status: MutableState<ECategorySelectStatus>,
+    val mangaData: MutableState<StoredManga?>,
+    val categories: MutableState<List<StoredMangaCategory>>
 ) : KoinComponent {
 
     val realmRepository: RealmRepository by inject()
 
+
     suspend fun selectCategories(sourceId: String, mangaId: String) {
         Napier.d { "$sourceId $mangaId ${realmRepository.has(sourceId, mangaId)}" }
-        if (sourceId.isEmpty() || mangaId.isEmpty() || !realmRepository.has(sourceId, mangaId)) {
-            return
-        }
+        this.sourceAndMangaId.value = Pair(sourceId,mangaId)
+        mangaData.value =
+            realmRepository.getBookmark(realmRepository.getBookmarkKey(sourceId,mangaId)).asFlow().first().obj
+                ?: return
+        categories.value = realmRepository.getCategories().asFlow().first().list
+
+        this.sheetState.show()
+
         Napier.d { "SELECTING PASS SHOWING SHEET" }
-        this.sourceId.value = sourceId
-        this.mangaId.value = mangaId
+    }
+
+    suspend fun selectCategories() {
         this.sheetState.show()
     }
+
+
 }
 
 @OptIn(ExperimentalMaterialApi::class)
@@ -104,9 +113,10 @@ fun rememberCategorySelectContentState(
 
         CategorySelectContentState(
             sheetState = sheetState,
-            sourceId = mutableStateOf(mangaId),
-            mangaId = mutableStateOf(sourceId),
-            status = mutableStateOf(ECategorySelectStatus.Idle)
+            sourceAndMangaId = mutableStateOf(Pair(sourceId,mangaId)),
+            status = mutableStateOf(ECategorySelectStatus.Idle),
+            categories = mutableStateOf(listOf()),
+            mangaData = mutableStateOf(null)
         )
     }
 }
@@ -126,9 +136,7 @@ fun CategorySelectContentSheetItem(
                 modifier = Modifier.fillMaxHeight(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                val pressableModifier = Modifier.fillMaxHeight().aspectRatio(1.0f).clip(
-                    RoundedCornerShape(5.dp)
-                )
+                val pressableModifier = Modifier.fillMaxHeight().aspectRatio(1.0f).borderRadius(5.dp)
 
                 Pressable(
                     modifier = Modifier.then(pressableModifier),
@@ -239,19 +247,42 @@ fun CategorySelectContent(
 
     val coroutineScope = rememberCoroutineScope()
 
+    val sourceAndMangaId by state.sourceAndMangaId
+
     var status by state.status
 
-    val isBookmarked by rememberIsBookmarked(state.sourceId.value, state.mangaId.value, false)
+    var categoriesData by state.categories
 
-    val categories by if (isBookmarked) {
-        rememberMangaCategories(state.sourceId.value, state.mangaId.value)
-    } else {
-        remember { mutableStateOf(listOf()) }
+    var mangaData by state.mangaData
+
+    val categories = remember(categoriesData.hashCode(),mangaData.hashCode()) {
+        when(mangaData != null){
+            true -> categoriesData.map {
+                Pair(it, mangaData!!.categories.contains(it.id))
+            }
+            else -> listOf()
+        }
     }
 
     var textFieldValue by remember { mutableStateOf("") }
 
     var itemBeingEdited by remember { mutableStateOf("") }
+
+    Napier.d { "Categories ${categories.size} ${status.name} ${sourceAndMangaId.second} ${state.sheetState.isVisible}" }
+
+
+
+    LaunchedEffect(sourceAndMangaId.first,sourceAndMangaId.second){
+        state.realmRepository.getBookmark(state.realmRepository.getBookmarkKey(sourceAndMangaId.first,sourceAndMangaId.second)).asFlow().collect{
+            mangaData = it.obj
+        }
+    }
+
+    LaunchedEffect(Unit){
+        state.realmRepository.getCategories().asFlow().collect{
+            categoriesData = it.list
+        }
+    }
 
     Box {
         ModalBottomSheetLayout(
@@ -260,7 +291,7 @@ fun CategorySelectContent(
             sheetBackgroundColor = Color.Transparent,
             sheetContentColor = contentColorFor(MaterialTheme.colorScheme.surface),
             sheetContent = {
-                if (isBookmarked) {
+                if (categories.isNotEmpty()) {
                     Column(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalAlignment = Alignment.Start,
@@ -297,9 +328,9 @@ fun CategorySelectContent(
                                 CategorySelectContentSheetItem(
                                     data = categories[idx], onClick = {
                                         coroutineScope.launch {
-                                            state.realmRepository.updateManga(
-                                                state.sourceId.value,
-                                                state.mangaId.value
+                                            state.realmRepository.updateBookmark(
+                                                sourceAndMangaId.first,
+                                                sourceAndMangaId.second
                                             ) {
                                                 if (categories[idx].second) {
                                                     it.categories.remove(categories[idx].first.id)
@@ -333,7 +364,7 @@ fun CategorySelectContent(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
                 ) {
-                    Column(modifier = Modifier.clip(RoundedCornerShape(5.dp)).fillMaxWidth(0.8f)) {
+                    Column(modifier = Modifier.borderRadius(5.dp).fillMaxWidth(0.8f)) {
                         TextField(
                             value = textFieldValue,
                             onValueChange = { textFieldValue = it },

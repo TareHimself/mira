@@ -1,15 +1,35 @@
 package com.tarehimself.mira.manga.reader
 
+import FileBridge
+import androidx.compose.ui.graphics.ImageBitmap
 import com.arkivanov.decompose.ComponentContext
 import com.arkivanov.decompose.value.MutableValue
 import com.arkivanov.decompose.value.update
 import com.arkivanov.essenty.lifecycle.Lifecycle
 import com.benasher44.uuid.uuid4
+import com.tarehimself.mira.common.ECacheType
+import com.tarehimself.mira.common.quickHash
 import com.tarehimself.mira.data.ApiMangaImage
 import com.tarehimself.mira.data.ChapterDownloader
+import com.tarehimself.mira.data.ImageRepository
 import com.tarehimself.mira.data.MangaApi
 import com.tarehimself.mira.data.MangaChapter
 import com.tarehimself.mira.data.RealmRepository
+import com.tarehimself.mira.data.SettingsRepository
+import io.github.aakira.napier.Napier
+import io.ktor.client.HttpClient
+import io.ktor.client.request.forms.ChannelProvider
+import io.ktor.client.request.forms.formData
+import io.ktor.client.request.forms.submitFormWithBinaryData
+import io.ktor.client.request.header
+import io.ktor.client.request.url
+import io.ktor.client.statement.bodyAsChannel
+import io.ktor.http.Headers
+import io.ktor.http.HttpHeaders
+import io.ktor.http.HttpStatusCode
+import io.ktor.http.contentLength
+import io.ktor.util.InternalAPI
+import io.ktor.utils.io.ByteReadChannel
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 
@@ -19,6 +39,10 @@ interface MangaReaderComponent : KoinComponent {
     val api: MangaApi
 
     val realmDatabase: RealmRepository
+
+    val imageRepository: ImageRepository
+
+    val settingsRepository: SettingsRepository
 
     val chapterDownloader: ChapterDownloader
     suspend fun loadPagesForIndex(chapterIndex: Int): List<ReaderItem<*>>?
@@ -31,39 +55,45 @@ interface MangaReaderComponent : KoinComponent {
 
     suspend fun markChapterAsRead(index: Int)
 
-    fun setChapterItemForIndex(index: Int, item: ReaderNetworkChapterItem)
+    fun setChapterItemForIndex(index: Int, item: NetworkChapterItem)
 
-    enum class EReaderItemType {
-        Page,
-        Divider
-    }
+    suspend fun translatePage(index: Int): Boolean
+
+    suspend fun loadLocalPageBitmap(item: LocalChapterItem): ImageBitmap?
+
+    suspend fun loadLocalPage(item: LocalChapterItem): Pair<ByteReadChannel, Long>?
 
     interface ReaderItem<T> {
-        val type: EReaderItemType
         val data: T
         val chapterIndex: Int
         val totalPages: Int
         val id: String
     }
 
-    interface ReaderChapterItem {
+    interface ReaderChapterItem<T> : ReaderItem<T> {
         val pageIndex: Int
     }
 
-    data class ReaderNetworkChapterItem(
+    data class NetworkChapterItem(
         override val data: ApiMangaImage, override val chapterIndex: Int,
         override val totalPages: Int, override val pageIndex: Int
-    ) : ReaderItem<ApiMangaImage>, ReaderChapterItem {
-        override val type: EReaderItemType = EReaderItemType.Page
+    ) : ReaderChapterItem<ApiMangaImage> {
         override val id: String = uuid4().toString()
     }
 
-    data class ReaderLocalChapterItem(
+    data class LocalChapterItem(
         override val data: Int, override val chapterIndex: Int,
         override val totalPages: Int, override val pageIndex: Int
-    ) : ReaderItem<Int>, ReaderChapterItem {
-        override val type: EReaderItemType = EReaderItemType.Page
+    ) : ReaderChapterItem<Int> {
         override val id: String = uuid4().toString()
+    }
+
+    data class TranslatedChapterItem<T>(override val data: ReaderChapterItem<T>) :
+        ReaderChapterItem<ReaderChapterItem<T>> {
+        override val pageIndex: Int = data.pageIndex
+        override val chapterIndex: Int = data.chapterIndex
+        override val id: String = data.id
+        override val totalPages: Int = data.totalPages
     }
 
 
@@ -72,7 +102,6 @@ interface MangaReaderComponent : KoinComponent {
         override val chapterIndex: Int,
         override val totalPages: Int
     ) : ReaderItem<String> {
-        override val type: EReaderItemType = EReaderItemType.Divider
         override val id: String = uuid4().toString()
     }
 
@@ -85,6 +114,8 @@ interface MangaReaderComponent : KoinComponent {
         var loadedPages: ArrayList<Int>,
         var isLoadingNext: Boolean,
         var isLoadingPrevious: Boolean,
+        var initialLoadError: String?,
+        var translationTasks: MutableSet<Int>
     )
 
 
@@ -102,7 +133,11 @@ class DefaultMangaReaderComponent(
 
     override val realmDatabase: RealmRepository by inject()
 
+    override val imageRepository: ImageRepository by inject()
+
     override val chapterDownloader: ChapterDownloader by inject()
+
+    override val settingsRepository: SettingsRepository by inject()
 
     override val state: MutableValue<MangaReaderComponent.State> = MutableValue(
         MangaReaderComponent.State(
@@ -110,12 +145,12 @@ class DefaultMangaReaderComponent(
             initialChapterIndex = initialChapterIndex,
             chapters = when (realmDatabase.has(sourceId, mangaId)) {
                 true -> {
-                    realmDatabase.getManga(
-                        realmDatabase.getMangaKey(
+                    realmDatabase.getBookmark(
+                        realmDatabase.getBookmarkKey(
                             sourceId,
                             mangaId
                         )
-                    ).first().chapters
+                    ).find()?.chapters ?: listOf()
                 }
 
                 else -> {
@@ -126,9 +161,12 @@ class DefaultMangaReaderComponent(
             pages = ArrayList(),
             loadedPages = ArrayList(),
             isLoadingNext = false,
-            isLoadingPrevious = false
+            isLoadingPrevious = false,
+            initialLoadError = null,
+            translationTasks = mutableSetOf()
         )
     )
+
 
     init {
         lifecycle.subscribe(object : Lifecycle.Callbacks {
@@ -142,11 +180,152 @@ class DefaultMangaReaderComponent(
         })
     }
 
+    override suspend fun loadLocalPageBitmap(item: MangaReaderComponent.LocalChapterItem): ImageBitmap? {
+        return FileBridge.getDownloadedChapterPageAsBitmap(
+            realmDatabase.getBookmarkKey(
+                state.value.sourceId,
+                state.value.mangaId
+            ).quickHash(),
+            state.value.chapters[item.chapterIndex].id.quickHash(),
+            item.pageIndex,
+            imageRepository.deviceWidth.value
+        )
+    }
+
+    override suspend fun loadLocalPage(item: MangaReaderComponent.LocalChapterItem): Pair<ByteReadChannel, Long>? {
+        return FileBridge.getDownloadedChapterPage(
+            realmDatabase.getBookmarkKey(
+                state.value.sourceId,
+                state.value.mangaId
+            ).quickHash(),
+            state.value.chapters[item.chapterIndex].id.quickHash(),
+            item.pageIndex
+        )
+    }
+
+
+    @OptIn(InternalAPI::class)
+    override suspend fun translatePage(index: Int): Boolean {
+        if(state.value.translationTasks.contains(index)){
+            return false
+        }
+
+        state.update {
+            it.translationTasks.add(index)
+            it
+        }
+
+        try {
+            state.value.pages.getOrNull(index)?.let {
+                when (it is MangaReaderComponent.LocalChapterItem || it is MangaReaderComponent.NetworkChapterItem) {
+                    true -> it
+                    else -> null
+                }
+            }?.let { chapterItem ->
+                val baseUrl by settingsRepository.translatorEndpoint
+                val translatedImage = when (chapterItem) {
+                    is MangaReaderComponent.LocalChapterItem -> {
+                        loadLocalPage(chapterItem)?.let { file ->
+                            val request = HttpClient().submitFormWithBinaryData(
+                                url = baseUrl,
+                                formData = formData {
+                                    append("file", ChannelProvider {
+                                        file.first
+                                    },Headers.build {
+                                        append(HttpHeaders.ContentType, "image/png")
+                                        append(HttpHeaders.ContentDisposition, "filename=\"image.png\"")
+                                    })
+                                }
+                            )
+
+                            if(request.status == HttpStatusCode.OK){
+                                request.bodyAsChannel()
+                            }
+                            else{
+
+                                null
+                            }
+                        }
+                    }
+
+                    is MangaReaderComponent.NetworkChapterItem -> {
+                        imageRepository.loadHttpImage {
+                            url(chapterItem.data.src)
+                            chapterItem.data.headers.forEach {
+                                header(key = it.key, value = it.value)
+                            }
+                        }?.let { file ->
+                            val request = HttpClient().submitFormWithBinaryData(
+                                url = baseUrl,
+                                formData = formData {
+                                    append("file", ChannelProvider {
+                                        file.first
+                                    },Headers.build {
+                                        append(HttpHeaders.ContentType, "image/png")
+                                        append(HttpHeaders.ContentDisposition, "filename=\"image.png\"")
+                                    })
+                                }
+                            )
+                            Napier.d { "Request done with status ${request.status.toString()}" }
+                            if(request.status == HttpStatusCode.OK){
+                                Napier.d { "Got body with size ${request.contentLength()}" }
+                                request.bodyAsChannel()
+                            }
+                            else{
+                                null
+                            }
+                        }
+
+                    }
+
+                    else -> {
+                        null
+                    }
+                }
+
+                translatedImage?.let {channel ->
+                    FileBridge.cacheItem(
+                        chapterItem.id.quickHash(),
+                        channel,
+                        type = ECacheType.Reader
+                    )
+                    Napier.d { "Saved Translated t0 ${chapterItem.id.quickHash()}" }
+                    state.update { current ->
+                        current.pages[index] =
+                            MangaReaderComponent.TranslatedChapterItem(chapterItem as MangaReaderComponent.ReaderChapterItem<*>)
+                        current.translationTasks.remove(index)
+                        current
+                    }
+
+                    return true
+                }
+            }
+
+            state.update {
+                it.translationTasks.remove(index)
+                it
+            }
+            return false
+        } catch (e: Exception) {
+            Napier.e("Error Translating Chapter", e)
+            state.update {
+                it.translationTasks.remove(index)
+                it
+            }
+
+            return false
+        }
+
+    }
+
 
     override suspend fun loadPagesForIndex(chapterIndex: Int): List<MangaReaderComponent.ReaderItem<*>>? {
-        if(state.value.chapters.lastIndex < chapterIndex){
+
+        if (state.value.chapters.lastIndex < chapterIndex) {
             return null
         }
+
+        Napier.d { "Loading pages for chapter ${chapterIndex} ${state.value.chapters[chapterIndex].id}" }
 
         if (chapterDownloader.isDownloaded(
                 state.value.sourceId,
@@ -172,7 +351,7 @@ class DefaultMangaReaderComponent(
                 )
                 for (i in 0 until pagesDownloaded) {
                     result.add(
-                        MangaReaderComponent.ReaderLocalChapterItem(
+                        MangaReaderComponent.LocalChapterItem(
                             data = i,
                             chapterIndex = chapterIndex,
                             pageIndex = i,
@@ -206,6 +385,10 @@ class DefaultMangaReaderComponent(
                 chapterId = state.value.chapters[chapterIndex].id
             )
 
+//            apiResponse.error?.let {
+//                throw Exception(it)
+//            }
+
             if (apiResponse.data != null) {
                 val chapter = state.value.chapters[chapterIndex]
                 val result: ArrayList<MangaReaderComponent.ReaderItem<*>> = ArrayList()
@@ -217,7 +400,7 @@ class DefaultMangaReaderComponent(
                     )
                 )
                 result.addAll(apiResponse.data.mapIndexed { idx, page ->
-                    MangaReaderComponent.ReaderNetworkChapterItem(
+                    MangaReaderComponent.NetworkChapterItem(
                         data = page,
                         chapterIndex = chapterIndex,
                         pageIndex = idx,
@@ -326,12 +509,19 @@ class DefaultMangaReaderComponent(
     }
 
     override suspend fun loadInitialChapter() {
-        val pages = loadPagesForIndex(state.value.initialChapterIndex)
+        try {
+            val pages = loadPagesForIndex(state.value.initialChapterIndex)
 
-        if (pages is ArrayList<MangaReaderComponent.ReaderItem<*>>) {
+            if (pages is ArrayList<MangaReaderComponent.ReaderItem<*>>) {
+                state.update {
+                    it.pages.addAll(pages)
+                    it.loadedPages.add(state.value.initialChapterIndex)
+                    it
+                }
+            }
+        } catch (e: Exception) {
             state.update {
-                it.pages.addAll(pages)
-                it.loadedPages.add(state.value.initialChapterIndex)
+                it.initialLoadError = e.message
                 it
             }
         }
@@ -343,7 +533,7 @@ class DefaultMangaReaderComponent(
 
     override fun setChapterItemForIndex(
         index: Int,
-        item: MangaReaderComponent.ReaderNetworkChapterItem
+        item: MangaReaderComponent.NetworkChapterItem
     ) {
         state.update {
             it.pages[index] = item

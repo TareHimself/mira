@@ -4,12 +4,15 @@ import com.arkivanov.essenty.parcelable.Parcelable
 import com.arkivanov.essenty.parcelable.Parcelize
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
+import io.ktor.client.plugins.UserAgent
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.get
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import org.koin.compose.koinInject
 import org.koin.core.component.KoinComponent
+import org.koin.core.component.inject
 
 @Serializable
 abstract class MangaApiResponse<T>{
@@ -143,9 +146,13 @@ class MangaSourceResponse(override val data: List<MangaSource>?,
                            override val error: String?) : MangaApiResponse<List<MangaSource>>()
 
 interface MangaApi: KoinComponent {
+
+    val settingsRepository: SettingsRepository
+
     val baseUrl: String
 
     val client: HttpClient
+
     suspend fun getSources(): MangaSourceResponse
 
     suspend fun search(source: String,query: String,next: String = ""): MangaSearchResponse
@@ -158,7 +165,9 @@ interface MangaApi: KoinComponent {
 }
 class DefaultMangaApi : MangaApi {
 
-    override val baseUrl = "https://manga.oyintare.dev/api/v1"
+    override val settingsRepository: SettingsRepository by inject()
+
+    override val baseUrl by settingsRepository.sourcesApi
 
     override var client = HttpClient {
         install(ContentNegotiation) {
@@ -167,6 +176,9 @@ class DefaultMangaApi : MangaApi {
                 isLenient = true
                 ignoreUnknownKeys = true
             })
+        }
+        install(UserAgent) {
+            agent = "Mira Client"
         }
     }
 

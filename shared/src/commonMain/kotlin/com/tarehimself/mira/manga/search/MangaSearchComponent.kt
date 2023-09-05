@@ -1,7 +1,6 @@
-package com.tarehimself.mira.screens.sources
+package com.tarehimself.mira.manga.search
 
 import com.arkivanov.decompose.ComponentContext
-import com.arkivanov.decompose.childContext
 import com.arkivanov.decompose.value.MutableValue
 import com.arkivanov.decompose.value.update
 import com.arkivanov.essenty.parcelable.Parcelable

@@ -21,11 +21,11 @@ import com.tarehimself.mira.data.ApiMangaImage
 import com.tarehimself.mira.data.ApiMangaPreview
 import com.tarehimself.mira.screens.bookmarks.DefaultBookmarksComponent
 import com.tarehimself.mira.screens.bookmarks.BookmarksComponent
-import com.tarehimself.mira.screens.sources.DefaultDownloadsComponent
-import com.tarehimself.mira.screens.sources.DefaultSettingsComponent
+import com.tarehimself.mira.screens.downloads.DefaultDownloadsComponent
+import com.tarehimself.mira.screens.settings.DefaultSettingsComponent
 import com.tarehimself.mira.screens.sources.DefaultSourcesComponent
-import com.tarehimself.mira.screens.sources.DownloadsComponent
-import com.tarehimself.mira.screens.sources.SettingsComponent
+import com.tarehimself.mira.screens.downloads.DownloadsComponent
+import com.tarehimself.mira.screens.settings.SettingsComponent
 import com.tarehimself.mira.screens.sources.SourcesComponent
 
 

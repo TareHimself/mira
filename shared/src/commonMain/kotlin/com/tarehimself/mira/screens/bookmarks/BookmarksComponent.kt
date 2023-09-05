@@ -24,14 +24,9 @@ interface BookmarksComponent : KoinComponent {
 
     val state: MutableValue<State>
 
-    val savedState: MutableValue<SavedState>
-
-    data class State(
-        var bookmarks: List<StoredManga>,
-    )
 
     @Parcelize
-    data class SavedState(
+    data class State(
         var selectedPage: Int,
     ) : Parcelable
 
@@ -53,44 +48,27 @@ class DefaultBookmarksComponent(
 
     override val realmDatabase: RealmRepository by inject()
 
-    override val state: MutableValue<BookmarksComponent.State> = MutableValue(
-        BookmarksComponent.State(
-            bookmarks = realmDatabase.realm.query(StoredManga::class)
-                .sort("addedAt", Sort.DESCENDING).find()
-            )
-    )
-
-    override val savedState: MutableValue<BookmarksComponent.SavedState> = MutableValue(stateKeeper.consume(key = "BOOKMARKS") ?: BookmarksComponent.SavedState(selectedPage = 0))
+    override val state: MutableValue<BookmarksComponent.State> = MutableValue(stateKeeper.consume(key = "BOOKMARKS") ?: BookmarksComponent.State(selectedPage = 0))
 
 
     init {
-        stateKeeper.register(key = "BOOKMARKS") { savedState.value }
+        stateKeeper.register(key = "BOOKMARKS") { state.value }
         lifecycle.subscribe(object : Lifecycle.Callbacks {
-            val realmBookmarksScope = CoroutineScope(Dispatchers.IO)
             override fun onCreate() {
                 super.onCreate()
-                realmBookmarksScope.launch {
-                    realmDatabase.realm.query(StoredManga::class).sort("addedAt", Sort.DESCENDING)
-                        .asFlow().collect { changes ->
-                        state.update {
-                            it.bookmarks = changes.list
-                            it
-                        }
-                    }
-                }
+
             }
 
             override fun onDestroy() {
                 super.onDestroy()
-                realmBookmarksScope.cancel()
             }
         })
     }
 
     override fun updateSelectedPage(newSelected: Int) {
-        if(newSelected != savedState.value.selectedPage){
+        if(newSelected != state.value.selectedPage){
             Napier.d { "Updating selected page $newSelected" }
-            savedState.update {
+            state.update {
                 it.copy(selectedPage = newSelected)
             }
         }

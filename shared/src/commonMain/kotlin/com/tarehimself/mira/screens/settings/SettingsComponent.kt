@@ -1,11 +1,11 @@
-package com.tarehimself.mira.screens.sources
+package com.tarehimself.mira.screens.settings
 
 import com.arkivanov.decompose.ComponentContext
 import com.arkivanov.decompose.value.MutableValue
 import com.arkivanov.decompose.value.update
 import com.arkivanov.essenty.parcelable.Parcelable
 import com.arkivanov.essenty.parcelable.Parcelize
-import com.arkivanov.essenty.statekeeper.consume
+import com.russhwolf.settings.Settings
 import com.tarehimself.mira.data.MangaApi
 import com.tarehimself.mira.data.MangaSource
 import org.koin.core.component.KoinComponent
@@ -16,11 +16,9 @@ interface SettingsComponent : KoinComponent {
     val state: MutableValue<State>
 
     val api: MangaApi
-    suspend fun getSources()
-
     @Parcelize
     data class State(
-        var sources: List<MangaSource> = listOf()
+        var updates: Int
     ) : Parcelable
 
 }
@@ -28,19 +26,8 @@ interface SettingsComponent : KoinComponent {
 class DefaultSettingsComponent(componentContext: ComponentContext) : SettingsComponent,
     ComponentContext by componentContext {
     override val state: MutableValue<SettingsComponent.State> =
-        MutableValue(SettingsComponent.State())
+        MutableValue(SettingsComponent.State(updates = 0))
 
-    override val api: MangaApi by inject<MangaApi>()
+    override val api: MangaApi by inject()
 
-    override suspend fun getSources() {
-        val sources = api.getSources()
-
-        state.update {
-            if (sources.data != null) {
-                it.sources = sources.data
-            }
-
-            it
-        }
-    }
 }

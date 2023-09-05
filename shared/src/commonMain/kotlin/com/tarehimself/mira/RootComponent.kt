@@ -15,7 +15,6 @@ import com.benasher44.uuid.uuid4
 import com.tarehimself.mira.data.ApiMangaChapter
 import com.tarehimself.mira.data.ApiMangaImage
 import com.tarehimself.mira.data.ApiMangaPreview
-import com.tarehimself.mira.data.MangaImage
 import com.tarehimself.mira.data.MangaPreview
 import com.tarehimself.mira.data.RealmRepository
 import com.tarehimself.mira.manga.reader.DefaultMangaReaderComponent
@@ -24,12 +23,10 @@ import com.tarehimself.mira.manga.viewer.DefaultMangaViewerComponent
 import com.tarehimself.mira.manga.viewer.MangaViewerComponent
 import com.tarehimself.mira.screens.DefaultScreensComponent
 import com.tarehimself.mira.screens.ScreensComponent
-import com.tarehimself.mira.screens.sources.DefaultMangaSearchComponent
-import com.tarehimself.mira.screens.sources.MangaSearchComponent
+import com.tarehimself.mira.manga.search.DefaultMangaSearchComponent
+import com.tarehimself.mira.manga.search.MangaSearchComponent
 import io.github.aakira.napier.DebugAntilog
 import io.github.aakira.napier.Napier
-import okio.FileSystem
-import okio.Path.Companion.toPath
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 
@@ -67,6 +64,8 @@ class DefaultRootComponent(componentContext: ComponentContext) : RootComponent, 
                 super.onCreate()
                 Napier.base(DebugAntilog())
             }
+
+
 
             override fun onDestroy() {
                 super.onDestroy()
