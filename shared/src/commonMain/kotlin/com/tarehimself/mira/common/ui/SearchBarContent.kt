@@ -69,7 +69,8 @@ fun SearchBarContent(
             ),
             leadingIcon = {
                 VectorImage(vector = Octicons.Search24, contentDescription = "Search Icon", color = textColor)
-            }
+            },
+
         )
     }
 }

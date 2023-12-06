@@ -1,19 +1,16 @@
 package com.tarehimself.mira.screens.bookmarks
 
+import BottomSheetIcon
+import BottomSheetIconRow
 import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.pager.HorizontalPager
@@ -38,20 +35,19 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.arkivanov.decompose.extensions.compose.jetbrains.subscribeAsState
 import com.tarehimself.mira.common.borderRadius
-import com.tarehimself.mira.common.ui.Pressable
+import com.tarehimself.mira.common.ui.BottomSheetSelectionIcon
 import com.tarehimself.mira.common.ui.SearchBarContent
 import com.tarehimself.mira.common.ui.SelectableContent
-import com.tarehimself.mira.common.ui.VectorImage
 import com.tarehimself.mira.common.ui.rememberSelectableContentState
+import com.tarehimself.mira.data.StoredManga
 import com.tarehimself.mira.data.rememberBookmarks
 import com.tarehimself.mira.data.rememberCategories
-import com.tarehimself.mira.manga.preview.MangaPreviewContent
+import com.tarehimself.mira.manga.preview.PreviewContent
 import compose.icons.FontAwesomeIcons
 import compose.icons.fontawesomeicons.Solid
 import compose.icons.fontawesomeicons.solid.Trash
@@ -77,9 +73,22 @@ fun BookmarksContent(component: BookmarksComponent) {
         } else {
             bookmarks.filter {
                 it.name.contains(
-                    searchQuery,
-                    true
+                    searchQuery, true
                 ) || it.tags.any { tag -> tag.contains(searchQuery, false) }
+            }
+        }
+    }
+
+    val getBookmarksForCategory: (category: String) -> List<StoredManga> = {category ->
+        bookmarksSearched.filter {
+            when (category) {
+                "DEFAULT" -> {
+                    it.categories.isEmpty()
+                }
+
+                else -> {
+                    it.categories.contains(category)
+                }
             }
         }
     }
@@ -134,29 +143,31 @@ fun BookmarksContent(component: BookmarksComponent) {
                 color = MaterialTheme.colorScheme.background,
                 tonalElevation = ModalBottomSheetDefaults.Elevation
             ) {
-                Row(
-                    horizontalArrangement = Arrangement.SpaceAround,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Pressable(
-                        modifier = Modifier.fillMaxHeight().aspectRatio(1.0f).borderRadius(5.dp),
-                        backgroundColor = Color.Transparent,
+                BottomSheetIconRow {
+                    BottomSheetIcon(vector = FontAwesomeIcons.Solid.Trash,
+                        contentDescription = "Delete",
                         onClick = {
                             coroutineScope.launch {
-                                component.realmDatabase.removeBookmarks(selectableContentState.selectedItems.toList())
+                                component.realmDatabase.removeBookmarks(selectableContentState.selectedItems.value.toList())
                                 selectableContentState.collapse()
                             }
+                        })
+
+                    BottomSheetSelectionIcon(onSelectAll = {
+                        selectableContentState.select(getBookmarksForCategory(categoriesToList[pagerState.currentPage].first).map { it.uniqueId })
+                    }, onSelectInverse = {
+                        selectableContentState.mutate {
+                            val allItems = getBookmarksForCategory(categoriesToList[pagerState.currentPage].first).map { manga -> manga.uniqueId }.toHashSet()
+                            val toAdd = allItems.subtract(it)
+                            it.clear()
+                            it.addAll(toAdd)
                         }
-                    ) {
-                        Box(modifier = Modifier.fillMaxHeight()) {
-                            VectorImage(
-                                vector = FontAwesomeIcons.Solid.Trash,
-                                contentDescription = "Delete",
-                                modifier = Modifier.size(20.dp).align(Alignment.Center)
-                            )
-                        }
-                    }
+                    }, onDeselect = {
+                        selectableContentState.collapse()
+                    })
+
                 }
+
             }
         },
 
@@ -180,8 +191,7 @@ fun BookmarksContent(component: BookmarksComponent) {
                     if (categoriesToList.isNotEmpty() && !(categoriesToList.size == 1 && categoriesToList.first().first == "DEFAULT")) {
                         ScrollableTabRow(
                             selectedTabIndex = pagerState.currentPage.coerceIn(
-                                0,
-                                categoriesToList.lastIndex
+                                0, categoriesToList.lastIndex
                             ),
                             containerColor = MaterialTheme.colorScheme.surface,
                             modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp),
@@ -192,8 +202,7 @@ fun BookmarksContent(component: BookmarksComponent) {
                                     coroutineScope.launch {
                                         pagerState.animateScrollToPage(idx)
                                     }
-                                },
-                                    text = { Text(data.second) })
+                                }, text = { Text(data.second) })
                             }
                         }
                     }
@@ -212,17 +221,7 @@ fun BookmarksContent(component: BookmarksComponent) {
                                 var isRefreshingCategory by remember { mutableStateOf(false) }
 
                                 val currentPageItems = remember(bookmarks.hashCode(), category) {
-                                    bookmarks.filter {
-                                        when (category) {
-                                            "DEFAULT" -> {
-                                                it.categories.isEmpty()
-                                            }
-
-                                            else -> {
-                                                it.categories.contains(category)
-                                            }
-                                        }
-                                    }
+                                    getBookmarksForCategory(category)
                                 }
 
                                 val pullRefreshState =
@@ -246,8 +245,12 @@ fun BookmarksContent(component: BookmarksComponent) {
                                         currentPageItems.forEach { manga ->
                                             item(key = manga.uniqueId) {
                                                 Box {
-                                                    Crossfade(selectableContentState.isSelected(manga.uniqueId), modifier = Modifier.matchParentSize()){
-                                                        if(it){
+                                                    Crossfade(
+                                                        selectableContentState.isSelected(
+                                                            manga.uniqueId
+                                                        ), modifier = Modifier.matchParentSize()
+                                                    ) {
+                                                        if (it) {
                                                             Box(
                                                                 modifier = Modifier.fillMaxSize()
                                                                     .padding(2.dp)
@@ -258,14 +261,17 @@ fun BookmarksContent(component: BookmarksComponent) {
                                                                 ) {
                                                                     Box(
                                                                         modifier = Modifier.matchParentSize()
-                                                                            .background(MaterialTheme.colorScheme.tertiary)
+                                                                            .background(
+                                                                                MaterialTheme.colorScheme.tertiary
+                                                                            )
                                                                     )
                                                                 }
                                                             }
                                                         }
                                                     }
-                                                    MangaPreviewContent(
-                                                        manga, manga.sourceId, onPressed = {
+                                                    PreviewContent(manga,
+                                                        manga.sourceId,
+                                                        onPressed = {
                                                             if (selectableContentState.isExpanding || selectableContentState.isExpanded) {
                                                                 coroutineScope.launch {
                                                                     if (selectableContentState.isSelected(
@@ -285,7 +291,8 @@ fun BookmarksContent(component: BookmarksComponent) {
                                                             } else {
                                                                 component.onMangaSelected(manga)
                                                             }
-                                                        }, onLongPressed = {
+                                                        },
+                                                        onLongPressed = {
                                                             if (selectableContentState.isCollapsed) {
                                                                 coroutineScope.launch {
                                                                     selectableContentState.expand(
@@ -293,8 +300,7 @@ fun BookmarksContent(component: BookmarksComponent) {
                                                                     )
                                                                 }
                                                             }
-                                                        }
-                                                    )
+                                                        })
                                                 }
 
                                             }

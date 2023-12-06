@@ -1,3 +1,4 @@
+import org.gradle.api.JavaVersion
 import org.jetbrains.kotlin.config.JvmTarget
 
 plugins {
@@ -13,11 +14,11 @@ plugins {
 
 android {
     namespace = "com.tarehimself.mira.android"
-    compileSdk = 33
+    compileSdk = 34
     defaultConfig {
         applicationId = "com.tarehimself.mira.android"
         minSdk = 24
-        targetSdk = 33
+        targetSdk = 34
         versionCode = 1
         versionName = "1.0"
     }
@@ -112,5 +113,8 @@ dependencies {
     val koin_version = "3.4.2"
     implementation("io.insert-koin:koin-android:$koin_version")
 
+    implementation("org.objenesis:objenesis:3.2")
+    implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.jar"))))
+//    implementation(files("libs/kmagick-sources.jar"))
 }
 

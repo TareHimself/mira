@@ -2,7 +2,7 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ImageBitmap
-import com.tarehimself.mira.common.ECacheType
+import com.tarehimself.mira.common.EFilePaths
 import io.ktor.utils.io.ByteReadChannel
 
 actual class ShareBridge {
@@ -10,22 +10,41 @@ actual class ShareBridge {
         actual fun shareText(data: String) {
         }
 
-        actual suspend fun shareImage(data: ByteArray) {
+        actual suspend fun shareFile(filePath: String) {
         }
+
+
     }
 }
 
 actual class FileBridge {
     actual companion object {
-        actual suspend fun cacheItem(
+        actual suspend fun writeFile(
             key: String,
             channel: ByteReadChannel,
+            type: EFilePaths,
             maxSize: Long
         ) {
+        }
+
+        actual suspend fun clearFiles(type: EFilePaths) {
+        }
+
+        actual suspend fun getDirSize(type: EFilePaths): Long? {
             TODO("Not yet implemented")
         }
 
-        actual suspend fun getCachedItem(key: String): Pair<ByteReadChannel, Long>? {
+        actual suspend fun readFile(
+            key: String,
+            type: EFilePaths
+        ): Pair<ByteReadChannel, Long>? {
+            TODO("Not yet implemented")
+        }
+
+        actual suspend fun getFilePath(
+            key: String,
+            type: EFilePaths
+        ): String? {
             TODO("Not yet implemented")
         }
 
@@ -52,11 +71,20 @@ actual class FileBridge {
             TODO("Not yet implemented")
         }
 
-        actual fun getDownloadedChapterPage(
+        actual suspend fun getDownloadedChapterPage(
             mangaKeyHash: String,
             chapterIdHash: String,
             page: Int
         ): Pair<ByteReadChannel, Long>? {
+            TODO("Not yet implemented")
+        }
+
+        actual suspend fun getDownloadedChapterPageAsBitmap(
+            mangaKeyHash: String,
+            chapterIdHash: String,
+            page: Int,
+            maxWidth: Int
+        ): ImageBitmap? {
             TODO("Not yet implemented")
         }
 
@@ -67,22 +95,22 @@ actual class FileBridge {
             TODO("Not yet implemented")
         }
 
-        actual fun deleteDownloadedChapters(): Boolean {
+        actual suspend fun deleteDownloadedChapters(): Boolean {
             TODO("Not yet implemented")
         }
 
-        actual suspend fun getCachedItemPath(key: String): String? {
+        actual fun getDirPath(type: EFilePaths): String? {
             TODO("Not yet implemented")
         }
 
-        actual fun getDownloadedChapterPageAsBitmap(
+        actual suspend fun getDownloadedChapterPagePath(
             mangaKeyHash: String,
             chapterIdHash: String,
-            page: Int,
-            maxWidth: Int
-        ): ImageBitmap? {
+            page: Int
+        ): String? {
             TODO("Not yet implemented")
         }
+
 
     }
 }
@@ -131,10 +159,32 @@ actual fun ImageBitmap.usable(): Boolean {
     TODO("Not yet implemented")
 }
 
-actual suspend fun bitmapFromCache(
+actual suspend fun bitmapFromFile(
     key: String,
-    type: ECacheType,
+    type: EFilePaths,
     maxWidth: Int
 ): ImageBitmap? {
     TODO("Not yet implemented")
 }
+
+actual fun Modifier.imePadding(): Modifier {
+    TODO("Not yet implemented")
+}
+
+actual class MiraFile actual constructor(path: String)
+
+actual operator fun MiraFile.plus(item: MiraFile): MiraFile {
+    TODO("Not yet implemented")
+}
+
+actual operator fun MiraFile.plus(item: String): MiraFile {
+    TODO("Not yet implemented")
+}
+
+actual suspend fun bitmapFromFile(
+    filePath: String,
+    maxWidth: Int
+): ImageBitmap? {
+    TODO("Not yet implemented")
+}
+

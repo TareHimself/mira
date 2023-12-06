@@ -1,4 +1,6 @@
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
     <cache-path name="cache_root" path="/" />
-    <files-path name="file_root" path="/" />
+    <cache-path name="reader" path="reader/" />
+    <files-path name="shared" path="shared/" />
+    <files-path name="chapters" path="chapters/" />
 </paths>

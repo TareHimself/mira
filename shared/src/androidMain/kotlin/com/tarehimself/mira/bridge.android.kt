@@ -1,32 +1,38 @@
 import android.annotation.SuppressLint
+import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.ImageDecoder
 import android.os.Build
-import android.widget.Toast
+import android.os.Environment
+import android.provider.MediaStore
+import android.provider.MediaStore.Images
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.core.content.FileProvider
 import com.tarehimself.mira.common.ECacheType
+import com.tarehimself.mira.common.EFilePaths
+import com.tarehimself.mira.common.hash
+import com.tarehimself.mira.data.RealmRepository
 import io.github.aakira.napier.Napier
 import io.ktor.util.cio.readChannel
 import io.ktor.utils.io.ByteReadChannel
 import io.realm.kotlin.internal.intToLong
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.io.File
-import java.lang.Exception
 import java.nio.ByteBuffer
 import kotlin.math.ceil
-import kotlin.math.max
+
 
 actual class ShareBridge {
 
@@ -61,114 +67,67 @@ actual class ShareBridge {
             }
         }
 
-        actual suspend fun shareImage(data: ByteArray) {
+        actual suspend fun shareFile(filePath: String) {
             context?.let { ctx ->
-                Toast.makeText(ctx, "Under Construction", Toast.LENGTH_SHORT).show()
-                return@let
+
+                val uri = FileProvider.getUriForFile(
+                    ctx,
+                    "com.oyintare.mira.provider",
+                    File(filePath)
+                );
+
                 val sendIntent: Intent = Intent().apply {
                     action = Intent.ACTION_SEND
-                    setType("image/*")
-                    putExtra(Intent.EXTRA_TEXT, data)
-                    type = "text/plain"
-
+                    type = ctx.contentResolver.getType(uri)
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
                 }
 
+
                 val shareIntent = Intent.createChooser(sendIntent, null)
-
+                shareIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 shareIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                //or Intent.FLAG_ACTIVITY_CLEAR_TASK
 
+                Napier.d { "Shared file with uri $uri" }
                 ctx.startActivity(shareIntent)
 
             }
         }
-    }
 
+        actual suspend fun saveImage(filePath: String) {
+            context?.let { ctx ->
 
-}
+//                val uri = FileProvider.getUriForFile(
+//                    ctx,
+//                    "com.oyintare.mira.provider",
+//                    File(filePath)
+//                );
 
-suspend fun File.write(channel: ByteReadChannel, minChunkSize: Int = 1024) {
-    val file = this
+                val values = ContentValues()
 
-    withContext(Dispatchers.IO) {
-        val stream = file.outputStream()
+                values.put(Images.Media.DATE_TAKEN, System.currentTimeMillis())
+                values.put(Images.Media.MIME_TYPE, "image/jpeg")
+//                values.put(MediaStore.MediaColumns.DATA, filePath)
+                values.put(
+                    MediaStore.MediaColumns.RELATIVE_PATH,
+                    Environment.DIRECTORY_PICTURES + "/Mira"
+                )
 
-        var offset = 0
-
-        do {
-
-            val bufferSize = max(minChunkSize, channel.availableForRead)
-
-            val buffer = ByteArray(bufferSize)
-
-            val currentRead = channel.readAvailable(buffer, 0, bufferSize)
-
-            offset += currentRead
-
-            if (currentRead > 0) {
-                val copied = if (currentRead < bufferSize) {
-                    buffer.copyOfRange(0, currentRead)
-                } else {
-                    buffer
-                }
-
-                withContext(Dispatchers.IO) {
-                    stream.write(copied)
+                ctx.contentResolver.insert(Images.Media.EXTERNAL_CONTENT_URI, values)?.let { uri ->
+                    ctx.contentResolver.openOutputStream(uri)?.let { out ->
+                        val file = File(filePath)
+                        bufferedPipeTo(file.inputStream(), out)
+                        Napier.d { "Saved Image" }
+                    }
                 }
             }
-        } while (currentRead > 0)
+        }
 
-        stream.close()
     }
 }
 
-fun File.lengthRecursive(): Long {
-    if (this.isFile) {
-        return this.length()
-    }
-
-    if (this.isDirectory) {
-        return this.listFiles()?.let {
-            it.sumOf { file -> file.lengthRecursive() }
-        } ?: 0
-    }
-
-    return 0
-}
-
-fun File.loadAsBitmap(maxWidth: Int = 0): ImageBitmap? {
-    val options = BitmapFactory.Options().apply {
-        inJustDecodeBounds = true
-    }
-
-    val path = this.absolutePath
-
-    return try {
-        BitmapFactory.decodeFile(path, options)
 
 
-        val sampleSize = ceil(
-            options.outWidth.toFloat() / when (maxWidth) {
-                0 -> options.outWidth.toFloat()
-                else -> maxWidth.toFloat()
-            }
-        ).toInt()
-
-        BitmapFactory.decodeFile(path, BitmapFactory.Options().apply {
-            inSampleSize = sampleSize
-        })?.asImageBitmap()
-    } catch (e: Exception) {
-        null
-    }
-}
-
-fun File.ensureDir(): Boolean {
-    if (!this.exists()) {
-        return this.mkdirs()
-    }
-
-    return true
-}
 
 actual class FileBridge {
     actual companion object {
@@ -193,46 +152,44 @@ actual class FileBridge {
         }
 
 
-        actual suspend fun cacheItem(
+        actual suspend fun writeFile(
             key: String,
             channel: ByteReadChannel,
-            type: ECacheType,
+            type: EFilePaths,
             maxSize: Long
         ) = withContext(Dispatchers.IO) {
-            context?.cacheDir?.absolutePath?.let {
-                val dir = File(it, type.ordinal.toString())
+            getDirPath(type)?.let {
+                val dir = File(it)
 
                 when (dir.ensureDir()) {
                     true -> {
-                        cacheMutexes[type.ordinal].withLock {
-                            val fileToWrite = File(dir, key)
-                            fileToWrite.write(channel)
+                        val fileToWrite = File(dir, key)
+                        fileToWrite.write(channel)
 
-                            Napier.d { "Cached item of size ${fileToWrite.length()} ${key}" }
+                        Napier.d { "Cached item of size ${fileToWrite.length()} ${fileToWrite.absolutePath}" }
 
-                            var cacheSize = dir.lengthRecursive()
+                        var cacheSize = dir.lengthRecursive()
 
-                            if (maxSize != intToLong(0) && cacheSize > maxSize) {
-                                dir.listFiles()?.let { files ->
+                        if (maxSize != intToLong(0) && cacheSize > maxSize) {
+                            dir.listFiles()?.let { files ->
 
-                                    files.sortBy { file -> file.lastModified() }
+                                files.sortBy { file -> file.lastModified() }
 
-                                    val mutableFiles = files.toMutableList()
+                                val mutableFiles = files.toMutableList()
 
-                                    @Suppress("KotlinConstantConditions")
-                                    while (cacheSize > maxSize) {
-                                        val toRemove = mutableFiles.firstOrNull() ?: break
-                                        val toRemoveSize = toRemove.length()
-                                        if (toRemove.delete()) {
-                                            cacheSize -= toRemoveSize
-                                            mutableFiles.removeAt(0)
-                                            return@withContext
-                                        } else {
-                                            break
-                                        }
+                                @Suppress("KotlinConstantConditions")
+                                while (cacheSize > maxSize) {
+                                    val toRemove = mutableFiles.firstOrNull() ?: break
+                                    val toRemoveSize = toRemove.length()
+                                    if (toRemove.delete()) {
+                                        cacheSize -= toRemoveSize
+                                        mutableFiles.removeAt(0)
+                                        return@withContext
+                                    } else {
+                                        break
                                     }
-                                } ?: Unit
-                            }
+                                }
+                            } ?: Unit
                         }
                     }
 
@@ -243,10 +200,10 @@ actual class FileBridge {
             } ?: Unit
         }
 
-        actual suspend fun getCachedItemPath(key: String, type: ECacheType): String? =
+        actual suspend fun getFilePath(key: String, type: EFilePaths): String? =
             withContext(Dispatchers.IO) {
-                context?.cacheDir?.absolutePath?.let {
-                    val dir = File(it, type.ordinal.toString())
+                getDirPath(type)?.let {
+                    val dir = File(it)
 
                     val targetFile = File(dir, key)
 
@@ -261,11 +218,11 @@ actual class FileBridge {
                 }
             }
 
-        actual suspend fun getCachedItem(
+        actual suspend fun readFile(
             key: String,
-            type: ECacheType
+            type: EFilePaths
         ): Pair<ByteReadChannel, Long>? = withContext(Dispatchers.IO) {
-            getCachedItemPath(key)?.let {
+            getFilePath(key, type)?.let {
                 val targetFile = File(it)
 
                 if (!targetFile.exists()) {
@@ -276,9 +233,20 @@ actual class FileBridge {
             }
         }
 
-        actual suspend fun clearCache(type: ECacheType) = withContext(Dispatchers.IO) {
-            context?.cacheDir?.absolutePath?.let {
-                val dir = File(it, type.ordinal.toString())
+        actual suspend fun readFile(filePath: String): Pair<ByteReadChannel, Long>? =
+            withContext(Dispatchers.IO) {
+                val targetFile = File(filePath)
+
+                if (!targetFile.exists()) {
+                    null
+                } else {
+                    Pair(targetFile.readChannel(), targetFile.length())
+                }
+            }
+
+        actual suspend fun clearFiles(type: EFilePaths) = withContext(Dispatchers.IO) {
+            getDirPath(type)?.let {
+                val dir = File(it)
 
                 when (dir.exists()) {
                     true -> dir.delete()
@@ -289,42 +257,15 @@ actual class FileBridge {
             } ?: Unit
         }
 
-        actual suspend fun getCacheSize(type: ECacheType) = withContext(Dispatchers.IO) {
-            context?.cacheDir?.absolutePath?.let {
-                val dir = File(it, type.ordinal.toString())
+        actual suspend fun getDirSize(type: EFilePaths) = withContext(Dispatchers.IO) {
+            getDirPath(type)?.let {
+                val dir = File(it)
 
                 when (dir.exists()) {
                     true -> dir.lengthRecursive()
                     else -> null
                 }
             }
-        }
-
-
-        actual suspend fun saveChapterPage(
-            mangaKeyHash: String,
-            chapterIdHash: String,
-            page: Int,
-            channel: ByteReadChannel
-        ): Boolean = withContext(Dispatchers.IO) {
-            context?.filesDir?.absolutePath?.let {
-                val fileDir = File(File(File(it, "chapters"), mangaKeyHash), chapterIdHash)
-
-                if (!fileDir.ensureDir()) {
-                    Napier.d { "Failed to create dir ${fileDir.absolutePath} " }
-                    false
-                } else {
-
-
-                    val targetFile = File(fileDir, page.toString().padStart(5,'0'))
-
-                    Napier.d { "Saving to ${fileDir.absolutePath}" }
-
-                    targetFile.write(channel)
-
-                    true
-                }
-            } ?: false
         }
 
         actual fun isChapterDownloaded(mangaKeyHash: String, chapterIdHash: String): Boolean {
@@ -335,39 +276,73 @@ actual class FileBridge {
             } ?: false
         }
 
-        actual fun deleteDownloadedChapter(mangaKeyHash: String, chapterIdHash: String): Boolean {
-            return context?.filesDir?.absolutePath?.let {
-                val fileDir = File(File(File(it, "chapters"), mangaKeyHash), chapterIdHash)
-
-                if (!fileDir.exists()) {
-                    return true
-                }
-
-                return fileDir.deleteRecursively()
-            } ?: false
-        }
-
-        actual suspend fun getDownloadedChapterPage(
-            mangaKeyHash: String,
-            chapterIdHash: String,
-            page: Int
-        ): Pair<ByteReadChannel, Long>? = withContext(Dispatchers.IO) {
+        actual suspend fun getChapterPagePath(
+            sourceId: String,
+            mangaId: String,
+            chapterId: String,
+            pageIndex: Int
+        ): String? = withContext(Dispatchers.IO) {
             context?.filesDir?.absolutePath?.let {
                 val fileDir =
-                    File(File(File(File(it, "chapters"), mangaKeyHash), chapterIdHash), page.toString().padStart(5,'0'))
+                    File(
+                        File(
+                            File(
+                                File(it, "chapters"),
+                                RealmRepository.getBookmarkKey(sourceId, mangaId).hash()
+                            ), chapterId.hash()
+                        ),
+                        "${pageIndex.toString().padStart(5, '0')}.png"
+                    )
 
                 if (!fileDir.exists()) {
                     Napier.d { "Chapter Page Does not exist ${fileDir.absolutePath}" }
                     null
                 } else {
-                    Pair(fileDir.readChannel(), fileDir.length())
+                    fileDir.absolutePath
                 }
             }
         }
 
-        actual fun getDownloadedChapterPagesNum(mangaKeyHash: String, chapterIdHash: String): Int =
+        actual suspend fun saveChapterPage(
+            sourceId: String,
+            mangaId: String,
+            chapterId: String,
+            pageIndex: Int,
+            channel: ByteReadChannel
+        ): Boolean = withContext(Dispatchers.IO) {
             context?.filesDir?.absolutePath?.let {
-                val fileDir = File(File(File(it, "chapters"), mangaKeyHash), chapterIdHash)
+                val fileDir =
+
+                    File(
+                        File(
+                            File(it, "chapters"),
+                            RealmRepository.getBookmarkKey(sourceId, mangaId).hash()
+                        ), chapterId.hash()
+                    )
+
+                if (!fileDir.ensureDir()) {
+                    false
+                } else {
+                    File(fileDir, "${pageIndex.toString().padStart(5, '0')}.png").write(channel)
+                    true
+                }
+
+
+            } ?: false
+        }
+
+        actual suspend fun getChapterPageCount(
+            sourceId: String,
+            mangaId: String,
+            chapterId: String
+        ): Int = withContext(Dispatchers.IO) {
+            context?.filesDir?.absolutePath?.let {
+                val fileDir = File(
+                    File(
+                        File(it, "chapters"),
+                        RealmRepository.getBookmarkKey(sourceId, mangaId).hash()
+                    ), chapterId.hash()
+                )
 
                 if (!fileDir.exists()) {
                     -1
@@ -375,8 +350,26 @@ actual class FileBridge {
                     fileDir.listFiles()?.size ?: -1
                 }
             } ?: -1
+        }
 
-        actual suspend fun deleteDownloadedChapters(): Boolean = withContext(Dispatchers.IO) {
+        actual suspend fun deleteChapter(
+            sourceId: String,
+            mangaId: String,
+            chapterId: String
+        ): Boolean = withContext(Dispatchers.IO) {
+            context?.filesDir?.absolutePath?.let {
+                val fileDir = File(
+                    File(
+                        File(it, "chapters"),
+                        RealmRepository.getBookmarkKey(sourceId, mangaId).hash()
+                    ), chapterId.hash()
+                )
+                Napier.d { "Deleting ${fileDir.absolutePath} TOTAL SIZE ${File(it).length()}" }
+                fileDir.exists() && fileDir.deleteRecursively()
+            } ?: false
+        }
+
+        actual suspend fun deleteAllChapters(): Boolean = withContext(Dispatchers.IO) {
             context?.filesDir?.absolutePath?.let {
                 val fileDir = File(it, "chapters")
                 Napier.d { "Deleting ${fileDir.absolutePath} TOTAL SIZE ${File(it).length()}" }
@@ -384,24 +377,16 @@ actual class FileBridge {
             } ?: false
         }
 
-        actual suspend fun getDownloadedChapterPageAsBitmap(
-            mangaKeyHash: String,
-            chapterIdHash: String,
-            page: Int,
-            maxWidth: Int
-        ): ImageBitmap? = withContext(Dispatchers.IO) {
-            context?.filesDir?.absolutePath?.let {
-                val fileDir =
-                    File(File(File(File(it, "chapters"), mangaKeyHash), chapterIdHash), page.toString().padStart(5,'0'))
-
-                if (!fileDir.exists()) {
-                    Napier.d { "Chapter Page Does not exist ${fileDir.absolutePath}" }
-                    null
-                } else {
-                    fileDir.loadAsBitmap(maxWidth)
-                }
+        actual fun getDirPath(type: EFilePaths): String? = context?.let {
+            when (type) {
+                EFilePaths.Bookmarks -> File(it.filesDir, "bookmarks").absolutePath
+                EFilePaths.CoverCache -> File(it.cacheDir, "covers").absolutePath
+                EFilePaths.SharedFiles -> File(it.filesDir, "shared").absolutePath
+                EFilePaths.ReaderPageCache -> File(it.cacheDir, "reader").absolutePath
             }
         }
+
+
     }
 }
 
@@ -439,24 +424,23 @@ actual fun DropdownMenuItem(
 
 }
 
-fun calcSampleSize(width: Int,maxWidth: Int): Int = when(maxWidth >= 1){
+fun calcSampleSize(width: Int, maxWidth: Int): Int = when (maxWidth >= 1) {
     true -> ceil(width.toFloat() / maxWidth.toFloat()).toInt()
     else -> 1
 }
 
 actual fun ByteArray.toImageBitmap(): ImageBitmap? {
-
-    if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.P)
-    {
-        return try {
-            ImageDecoder.decodeBitmap(ImageDecoder.createSource(ByteBuffer.wrap(this))).asImageBitmap()
-        } catch (e: Exception){
-            Napier.e("Error decoding image",e)
-            null
+    return try {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            ImageDecoder.decodeBitmap(ImageDecoder.createSource(ByteBuffer.wrap(this)))
+                .asImageBitmap()
         }
-    }
 
-    return BitmapFactory.decodeByteArray(this, 0, size)?.let { it.asImageBitmap() }
+        BitmapFactory.decodeByteArray(this, 0, size)?.let { it.asImageBitmap() }
+    } catch (e: Exception) {
+        Napier.e("Error decoding image", e)
+        null
+    }
 }
 
 actual fun ImageBitmap.sizeBytes(): Int {
@@ -465,42 +449,41 @@ actual fun ImageBitmap.sizeBytes(): Int {
 
 
 actual fun ByteArray.toImageBitmap(maxWidth: Int): ImageBitmap? {
+    try {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
 
-    if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.P)
-    {
-        try {
             val header = ImageDecoder.OnHeaderDecodedListener { decoder, info, _ ->
                 val size = info.size
-                val sampleSize = calcSampleSize(size.width,maxWidth)
+                val sampleSize = calcSampleSize(size.width, maxWidth)
 
                 decoder.setTargetSampleSize(sampleSize)
             }
 
 
-            return ImageDecoder.decodeBitmap(ImageDecoder.createSource(ByteBuffer.wrap(this)), header).asImageBitmap()
+            return ImageDecoder.decodeBitmap(
+                ImageDecoder.createSource(ByteBuffer.wrap(this)),
+                header
+            ).asImageBitmap()
         }
-        catch (e: Exception){
-            Napier.e("Error decoding image",e)
-            return null
+
+        val options = BitmapFactory.Options().apply {
+            inJustDecodeBounds = true
         }
+
+        BitmapFactory.decodeByteArray(this, 0, size, options)
+
+        val sampleSize = when (maxWidth >= 1) {
+            true -> ceil(options.outWidth.toFloat() / maxWidth.toFloat()).toInt()
+            else -> 1
+        }
+
+        return BitmapFactory.decodeByteArray(this, 0, size, BitmapFactory.Options().apply {
+            inSampleSize = sampleSize
+        })?.asImageBitmap()
+    } catch (e: Exception) {
+        Napier.e("Error decoding image", e)
+        return null
     }
-
-    val options = BitmapFactory.Options().apply {
-        inJustDecodeBounds = true
-    }
-
-
-    BitmapFactory.decodeByteArray(this, 0, size, options)
-
-    val sampleSize = when(maxWidth >= 1){
-        true -> ceil(options.outWidth.toFloat() / maxWidth.toFloat()).toInt()
-        else -> 1
-    }
-
-    return BitmapFactory.decodeByteArray(this, 0, size, BitmapFactory.Options().apply {
-        inSampleSize = sampleSize
-    })?.asImageBitmap()
-
 }
 
 actual fun ImageBitmap.toBytes(): ByteArray {
@@ -509,50 +492,51 @@ actual fun ImageBitmap.toBytes(): ByteArray {
     return stream.toByteArray()
 }
 
-actual suspend fun bitmapFromCache(
+actual suspend fun bitmapFromFile(
     key: String,
-    type: ECacheType,
+    type: EFilePaths,
     maxWidth: Int
 ): ImageBitmap? {
+    return FileBridge.getFilePath(key, type)?.let {
+        bitmapFromFile(filePath = it, maxWidth = maxWidth)
+    }
+}
 
+actual suspend fun bitmapFromFile(
+    filePath: String,
+    maxWidth: Int
+): ImageBitmap? {
+    try {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            val header = ImageDecoder.OnHeaderDecodedListener { decoder, info, _ ->
+                val size = info.size
+                val sampleSize = calcSampleSize(size.width, maxWidth)
 
-    return FileBridge.getCachedItemPath(key,type)?.let {
-
-        if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.P)
-        {
-            try {
-                val header = ImageDecoder.OnHeaderDecodedListener { decoder, info, _ ->
-                    val size = info.size
-                    val sampleSize = calcSampleSize(size.width,maxWidth)
-
-                    decoder.setTargetSampleSize(sampleSize)
-                }
-
-
-                return ImageDecoder.decodeBitmap(ImageDecoder.createSource(File(it)), header).asImageBitmap()
+                decoder.setTargetSampleSize(sampleSize)
             }
-            catch (e: Exception){
-                Napier.e("Error decoding image",e)
-                return null
-            }
+
+
+            return ImageDecoder.decodeBitmap(ImageDecoder.createSource(File(filePath)), header)
+                .asImageBitmap()
         }
-
         val options = BitmapFactory.Options().apply {
             inJustDecodeBounds = true
         }
 
-        BitmapFactory.decodeFile(it, options)
+        BitmapFactory.decodeFile(filePath, options)
 
-        val sampleSize = when(maxWidth >= 1){
+        val sampleSize = when (maxWidth >= 1) {
             true -> ceil(options.outWidth.toFloat() / maxWidth.toFloat()).toInt()
             else -> 1
         }
 
-        return BitmapFactory.decodeFile(it, BitmapFactory.Options().apply {
+        return BitmapFactory.decodeFile(filePath, BitmapFactory.Options().apply {
             inSampleSize = sampleSize
         })?.asImageBitmap()
+    } catch (e: Exception) {
+        Napier.e("Error decoding image", e)
+        return null
     }
-
 }
 
 actual fun ImageBitmap.free() {
@@ -562,3 +546,44 @@ actual fun ImageBitmap.free() {
 actual fun ImageBitmap.usable(): Boolean {
     return !this.asAndroidBitmap().isRecycled
 }
+
+actual fun Modifier.imePadding(): Modifier = this.then(Modifier.imePadding())
+actual class MiraFile actual constructor(path: String) {
+
+    private val filePath = path
+    actual fun absolutePath(): String {
+        return asAndroidFile().absolutePath
+    }
+
+    actual fun exists(): Boolean {
+        return asAndroidFile().exists()
+    }
+
+    actual suspend fun write(data: ByteReadChannel): Boolean = withContext(Dispatchers.IO) {
+        asAndroidFile().write(data)
+        exists()
+    }
+
+    actual suspend fun read(): Pair<ByteReadChannel, Long>? = withContext(Dispatchers.IO) {
+        if (exists()) {
+            Pair(asAndroidFile().readChannel(), asAndroidFile().length())
+        } else {
+            null
+        }
+    }
+
+    actual operator fun MiraFile.plus(item: MiraFile): MiraFile {
+        return MiraFile(filePath + File.pathSeparator + item.filePath)
+    }
+
+    actual operator fun MiraFile.plus(item: String): MiraFile {
+        return MiraFile(filePath + File.pathSeparator + item)
+    }
+
+    actual override fun toString(): String = asAndroidFile().absolutePath
+
+
+    fun asAndroidFile(): File = File(filePath)
+}
+
+fun File.asMiraFile(): MiraFile = MiraFile(absolutePath)

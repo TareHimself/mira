@@ -25,11 +25,14 @@ interface SourcesComponent : KoinComponent {
 
     val onItemSelected: (source: String) -> Unit
 
+    val onSearchMultiple: (sources: List<MangaSource>) -> Unit
+
 }
 
 class DefaultSourcesComponent(
     componentContext: ComponentContext,
-    onSourceSelected: (source: String) -> Unit
+    onSourceSelected: (source: String) -> Unit,
+    onSearchMultiple: (sources: List<MangaSource>) -> Unit
 ) : SourcesComponent, ComponentContext by componentContext {
     override val state: MutableValue<SourcesComponent.State> = MutableValue(
         stateKeeper.consume(key = "SOURCES_COMP_STATE") ?: SourcesComponent.State()
@@ -42,6 +45,7 @@ class DefaultSourcesComponent(
     }
 
     override val onItemSelected: (source: String) -> Unit = onSourceSelected
+    override val onSearchMultiple: (sources: List<MangaSource>) -> Unit = onSearchMultiple
 
     override suspend fun getSources() {
         val sources = api.getSources()

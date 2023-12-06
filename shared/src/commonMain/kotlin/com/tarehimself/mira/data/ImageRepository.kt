@@ -5,7 +5,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.graphics.ImageBitmap
 import com.tarehimself.mira.common.Base64.decodeFromBase64
 import com.tarehimself.mira.common.Cache
-import com.tarehimself.mira.common.quickHash
+import com.tarehimself.mira.common.hash
 import free
 import io.github.aakira.napier.Napier
 import io.ktor.client.HttpClient
@@ -18,16 +18,11 @@ import io.ktor.utils.io.ByteReadChannel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import org.koin.core.component.KoinComponent
 import sizeBytes
 import usable
 import kotlin.coroutines.cancellation.CancellationException
-import kotlin.jvm.Synchronized
-import kotlin.math.max
-import kotlin.math.roundToInt
 
 class MiraBitmap(private val bitmap: ImageBitmap, var refs: Int = 0){
 
@@ -42,7 +37,7 @@ class MiraBitmap(private val bitmap: ImageBitmap, var refs: Int = 0){
 
     fun use(){
         refs++
-        Napier.d { "$refs Refs ${bitmap.hashCode()} | Active Bitmaps ${activeBitmaps.value}" }
+        //Napier.d { "$refs Refs ${bitmap.hashCode()} | Active Bitmaps ${activeBitmaps.value}" }
     }
 
     fun get(): ImageBitmap {
@@ -58,7 +53,7 @@ class MiraBitmap(private val bitmap: ImageBitmap, var refs: Int = 0){
                 activeBitmaps.value--
             }
         }
-        Napier.d { "$refs Refs ${bitmap.hashCode()} | Active Bitmaps ${activeBitmaps.value}" }
+        //Napier.d { "$refs Refs ${bitmap.hashCode()} | Active Bitmaps ${activeBitmaps.value}" }
     }
 
     fun usable(): Boolean {
@@ -130,35 +125,41 @@ class DefaultImageRepository : ImageRepository {
         block: HttpRequestBuilder.() -> Unit,
 
         ): Pair<ByteReadChannel, Long>? {
-        return loadHttpImage(tries, HttpRequestBuilder().apply(block))
+        return withContext(Dispatchers.IO){
+            loadHttpImage(tries, HttpRequestBuilder().apply(block))
+        }
     }
 
     override suspend fun loadHttpImage(
         tries: Int,
         builder: HttpRequestBuilder
     ): Pair<ByteReadChannel, Long>? {
-        try {
-            val response = client.get(builder)
-            return if (response.status == HttpStatusCode.OK
-            ) {
-                return Pair(response.bodyAsChannel(), response.contentLength() ?: 0)
-            } else {
-                null
-            }
-        } catch (_: CancellationException) {
-            return null
-        } catch (e: Exception) {
-            Napier.e(
-                "Exception while fetching http image ${e.message} ${builder.url}",
-                tag = "Image Repository"
-            )
+       return withContext(Dispatchers.IO){
+           try {
+               val response = client.get(builder)
 
-            if (tries < 10) {
-                return loadHttpImage(tries + 1, builder)
-            }
+               if (response.status == HttpStatusCode.OK
+               ) {
+                   Pair(response.bodyAsChannel(), response.contentLength() ?: 0)
+               } else {
+                   null
+               }
+           } catch (_: CancellationException) {
+               null
+           } catch (e: Exception) {
+               Napier.e(
+                   "Exception while fetching http image ${e.message} ${builder.url}",
+                   tag = "Image Repository"
+               )
 
-            return null
-        }
+               if (tries < 10) {
+                   loadHttpImage(tries + 1, builder)
+               }
+               else{
+                   null
+               }
+           }
+       }
     }
 
     override fun loadB64Image(url: String): ByteArray {
@@ -167,7 +168,7 @@ class DefaultImageRepository : ImageRepository {
 
     override fun hashData(data: String): String {
         return hashCache[data] ?: run {
-            val hashed = data.quickHash()
+            val hashed = data.hash()
             hashCache[data] = hashed
             hashed
         }

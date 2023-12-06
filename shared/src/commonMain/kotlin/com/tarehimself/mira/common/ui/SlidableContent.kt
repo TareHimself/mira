@@ -28,9 +28,17 @@ import kotlin.math.abs
 
 
 @Composable
-fun SlidableContent(
+fun SideDrawerContent(
     modifier: Modifier = Modifier,
-    background: @Composable BoxScope.() -> Unit,
+    contentIndicator: @Composable BoxScope.(visibility: Float) -> Unit = {
+        Surface(
+            modifier = Modifier.fillMaxHeight().width(2.dp),
+            color = MaterialTheme.colorScheme.primary
+        ) {
+
+        }
+    },
+    drawerContent: @Composable BoxScope.() -> Unit,
     content: @Composable BoxScope.() -> Unit
 ) {
 
@@ -78,22 +86,18 @@ fun SlidableContent(
                 .align(Alignment.CenterEnd).onGloballyPositioned {
                     backgroundWidth = it.size.width
                 }) {
-            background(this)
+            drawerContent(this)
         }
         Box(modifier = Modifier.matchParentSize().offset(x = pressableOffsetAnimated)) {
             content(this)
         }
 
+
         Box(
-            modifier = Modifier.fillMaxHeight().width(2.dp).align(Alignment.CenterEnd)
+            modifier = Modifier.align(Alignment.CenterEnd)
                 .alpha(indicatorAnimated)
         ) {
-            Surface(
-                modifier = Modifier.matchParentSize(),
-                color = MaterialTheme.colorScheme.primary
-            ) {
-
-            }
+            contentIndicator(indicatorAnimated)
         }
     }
 }

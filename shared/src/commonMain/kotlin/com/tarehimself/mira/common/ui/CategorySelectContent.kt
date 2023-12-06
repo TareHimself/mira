@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -24,9 +23,7 @@ import androidx.compose.material.rememberModalBottomSheetState
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
@@ -40,6 +37,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.tarehimself.mira.common.LocalBackHandler
 import com.tarehimself.mira.common.borderRadius
 import com.tarehimself.mira.data.RealmRepository
 import com.tarehimself.mira.data.StoredManga
@@ -60,18 +58,11 @@ import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 
 
-enum class ECategorySelectStatus {
-    Idle,
-    Creating,
-    Editing
-}
-
 @OptIn(ExperimentalMaterialApi::class)
 @Stable
 class CategorySelectContentState constructor(
     val sheetState: ModalBottomSheetState,
     val sourceAndMangaId: MutableState<Pair<String,String>>,
-    val status: MutableState<ECategorySelectStatus>,
     val mangaData: MutableState<StoredManga?>,
     val categories: MutableState<List<StoredMangaCategory>>
 ) : KoinComponent {
@@ -80,10 +71,9 @@ class CategorySelectContentState constructor(
 
 
     suspend fun selectCategories(sourceId: String, mangaId: String) {
-        Napier.d { "$sourceId $mangaId ${realmRepository.has(sourceId, mangaId)}" }
         this.sourceAndMangaId.value = Pair(sourceId,mangaId)
         mangaData.value =
-            realmRepository.getBookmark(realmRepository.getBookmarkKey(sourceId,mangaId)).asFlow().first().obj
+            realmRepository.getBookmark(RealmRepository.getBookmarkKey(sourceId,mangaId)).asFlow().first().obj
                 ?: return
         categories.value = realmRepository.getCategories().asFlow().first().list
 
@@ -114,7 +104,6 @@ fun rememberCategorySelectContentState(
         CategorySelectContentState(
             sheetState = sheetState,
             sourceAndMangaId = mutableStateOf(Pair(sourceId,mangaId)),
-            status = mutableStateOf(ECategorySelectStatus.Idle),
             categories = mutableStateOf(listOf()),
             mangaData = mutableStateOf(null)
         )
@@ -130,8 +119,8 @@ fun CategorySelectContentSheetItem(
     realmRepository: RealmRepository = koinInject()
 ) {
 
-    SlidableContent(modifier = Modifier.fillMaxWidth().height(70.dp),
-        background = {
+    SideDrawerContent(modifier = Modifier.fillMaxWidth().height(70.dp),
+        drawerContent = {
             Row(
                 modifier = Modifier.fillMaxHeight(),
                 verticalAlignment = Alignment.CenterVertically
@@ -245,11 +234,12 @@ fun CategorySelectContent(
     content: @Composable () -> Unit
 ) {
 
+    val dialogController = LocalMiraDialogController.current
+    val backHandler = LocalBackHandler.current
+
     val coroutineScope = rememberCoroutineScope()
 
     val sourceAndMangaId by state.sourceAndMangaId
-
-    var status by state.status
 
     var categoriesData by state.categories
 
@@ -264,16 +254,10 @@ fun CategorySelectContent(
         }
     }
 
-    var textFieldValue by remember { mutableStateOf("") }
-
-    var itemBeingEdited by remember { mutableStateOf("") }
-
-    Napier.d { "Categories ${categories.size} ${status.name} ${sourceAndMangaId.second} ${state.sheetState.isVisible}" }
-
-
+    Napier.d { "Categories ${categories.size} ${sourceAndMangaId.second} ${state.sheetState.isVisible}" }
 
     LaunchedEffect(sourceAndMangaId.first,sourceAndMangaId.second){
-        state.realmRepository.getBookmark(state.realmRepository.getBookmarkKey(sourceAndMangaId.first,sourceAndMangaId.second)).asFlow().collect{
+        state.realmRepository.getBookmark(RealmRepository.getBookmarkKey(sourceAndMangaId.first,sourceAndMangaId.second)).asFlow().collect{
             mangaData = it.obj
         }
     }
@@ -291,34 +275,49 @@ fun CategorySelectContent(
             sheetBackgroundColor = Color.Transparent,
             sheetContentColor = contentColorFor(MaterialTheme.colorScheme.surface),
             sheetContent = {
+                Pressable(modifier = Modifier.fillMaxWidth().height(70.dp), onClick = {
+                    dialogController.show(data = "",backHandler = backHandler) {initialText ->
+                        TextInputCard(initialValue = initialText,
+                            modifier = Modifier.align(
+                                Alignment.Center
+                            ),
+                            commitText = "Create",
+                            onCancelled = {
+                                dialogController.hide()
+                            },
+                            onCommitted = { committedValue ->
+                                dialogController.hide()
+                                coroutineScope.launch {
+                                    state.realmRepository.createCategory(committedValue)
+                                }
+                            })
+                    }
+                }, backgroundColor = MaterialTheme.colorScheme.surface) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 20.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(modifier = Modifier.padding(5.dp)) {
+                            VectorImage(
+                                vector = FontAwesomeIcons.Solid.Plus,
+                                contentDescription = "Add",
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            "New Category",
+                            modifier = Modifier.padding(vertical = 20.dp)
+                        )
+                    }
+                }
                 if (categories.isNotEmpty()) {
                     Column(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalAlignment = Alignment.Start,
                         verticalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Pressable(modifier = Modifier.fillMaxWidth().height(70.dp), onClick = {
-                            status = ECategorySelectStatus.Creating
-                        }, backgroundColor = MaterialTheme.colorScheme.surface) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 20.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Box(modifier = Modifier.padding(5.dp)) {
-                                    VectorImage(
-                                        vector = FontAwesomeIcons.Solid.Plus,
-                                        contentDescription = "Add",
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
-
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Text(
-                                    "New Category",
-                                    modifier = Modifier.padding(vertical = 20.dp)
-                                )
-                            }
-                        }
 
                         LazyColumn {
                             items(categories.size, key = {
@@ -341,9 +340,25 @@ fun CategorySelectContent(
                                         }
                                     },
                                     onEdit = {
-                                        itemBeingEdited = categories[idx].first.id
-                                        textFieldValue = categories[idx].first.name
-                                        status = ECategorySelectStatus.Editing
+                                        dialogController.show(data = Pair(categories[idx].first.id,categories[idx].first.name),backHandler = backHandler) {initialData ->
+                                            TextInputCard(initialValue = initialData.second,
+                                                modifier = Modifier.align(
+                                                    Alignment.Center
+                                                ),
+                                                commitText = "Edit",
+                                                onCancelled = {
+                                                    dialogController.hide()
+                                                },
+                                                onCommitted = { committedValue ->
+                                                    dialogController.hide()
+                                                    coroutineScope.launch {
+                                                        state.realmRepository.updateCategoryName(
+                                                            initialData.first,
+                                                            committedValue
+                                                        )
+                                                    }
+                                                })
+                                        }
                                     },
                                     coroutineScope = coroutineScope
                                 )
@@ -354,89 +369,6 @@ fun CategorySelectContent(
             },
             content = content
         )
-        if (status != ECategorySelectStatus.Idle) {
-            Surface(
-                modifier = Modifier.matchParentSize(),
-                color = Color.Black.copy(alpha = 0.7f)
-            ) {
-                Column(
-                    modifier = Modifier.fillMaxSize(),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    Column(modifier = Modifier.borderRadius(5.dp).fillMaxWidth(0.8f)) {
-                        TextField(
-                            value = textFieldValue,
-                            onValueChange = { textFieldValue = it },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Row(
-                            modifier = Modifier.height(40.dp).fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceAround
-                        ) {
-                            val buttonModifier = Modifier.fillMaxHeight().weight(1.0f)
-                            Pressable(
-                                onClick = {
-                                    status = ECategorySelectStatus.Idle
-                                },
-                                backgroundColor = MaterialTheme.colorScheme.primary,
-                                modifier = buttonModifier
-                            ) {
-                                Box {
-                                    Text("Cancel", modifier = Modifier.align(Alignment.Center))
-                                }
-
-                            }
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Pressable(
-                                onClick = {
-                                    when (status) {
-                                        ECategorySelectStatus.Editing -> {
-                                            coroutineScope.launch {
-                                                status = ECategorySelectStatus.Idle
-                                                state.realmRepository.updateCategoryName(
-                                                    itemBeingEdited,
-                                                    textFieldValue
-                                                )
-                                                textFieldValue = ""
-                                            }
-                                        }
-
-                                        else -> {
-                                            coroutineScope.launch {
-                                                status = ECategorySelectStatus.Idle
-                                                state.realmRepository.createCategory(textFieldValue)
-                                                textFieldValue = ""
-                                            }
-                                        }
-                                    }
-
-                                },
-                                backgroundColor = MaterialTheme.colorScheme.primary,
-                                modifier = buttonModifier
-                            ) {
-                                Box {
-                                    Text(
-                                        when (status) {
-                                            ECategorySelectStatus.Editing -> {
-                                                "Edit"
-                                            }
-
-                                            else -> {
-                                                "Create"
-                                            }
-                                        },
-                                        modifier = Modifier.align(Alignment.Center)
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
     }
 
 }

@@ -2,22 +2,19 @@ package com.tarehimself.mira.android
 
 import FileBridge
 import ShareBridge
-import android.content.Intent
-import android.net.Uri
 import android.os.Bundle
-import android.os.Environment
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.ui.Modifier
-import androidx.core.content.FileProvider
 import androidx.core.view.WindowCompat
 import com.arkivanov.decompose.defaultComponentContext
 import com.tarehimself.mira.DefaultRootComponent
 import com.tarehimself.mira.RootContent
 import com.tarehimself.mira.initKoin
+import com.tarehimself.mira.storage.MediaStorage
 import org.koin.android.ext.koin.androidContext
 
 
@@ -30,6 +27,7 @@ class MainActivity : ComponentActivity() {
 
         ShareBridge.setContext(applicationContext)
         FileBridge.setContext(applicationContext)
+        MediaStorage.setContext(applicationContext)
 
         initKoin {
             androidContext(applicationContext)
@@ -72,5 +70,6 @@ class MainActivity : ComponentActivity() {
         super.onDestroy()
         ShareBridge.clearContext()
         FileBridge.clearContext()
+        MediaStorage.clearContext()
     }
 }

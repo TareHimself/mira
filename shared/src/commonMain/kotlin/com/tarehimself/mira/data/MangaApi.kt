@@ -2,6 +2,7 @@ package com.tarehimself.mira.data
 
 import com.arkivanov.essenty.parcelable.Parcelable
 import com.arkivanov.essenty.parcelable.Parcelize
+import io.github.aakira.napier.Napier
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.plugins.UserAgent
@@ -63,7 +64,7 @@ data class ApiMangaChapter (
     override val id: String,
     override val name: String,
     override val released: String? = ""
-) : MangaChapter, Parcelable
+) : MangaChapter
 interface  MangaImage {
     val headers: List<MangaHeader>
     val src: String
@@ -106,7 +107,7 @@ data class ApiMangaData (
     override val extras: List<ApiMangaExtras>
 ) : MangaData
 
-interface MangaChapter {
+interface MangaChapter : Parcelable {
     val id: String
     val name: String
     val released: String?
@@ -191,6 +192,7 @@ class DefaultMangaApi : MangaApi {
                 }
             }.body()
         }catch (e: Exception){
+            Napier.e(e.message ?: "",e.cause)
             MangaSourceResponse(null,e.message)
         }
     }

@@ -1,6 +1,5 @@
 package com.tarehimself.mira.common.ui
 
-import FileBridge
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
@@ -22,14 +21,16 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.toSize
-import bitmapFromCache
-import com.tarehimself.mira.common.quickHash
+import bitmapFromFile
+import com.tarehimself.mira.common.hash
 import com.tarehimself.mira.common.readAllInChunks
 import com.tarehimself.mira.common.toChannel
 import com.tarehimself.mira.data.ImageRepository
 import com.tarehimself.mira.data.MangaImage
 import com.tarehimself.mira.data.MiraBitmap
+import com.tarehimself.mira.data.RealmRepository
 import com.tarehimself.mira.data.createMiraBitmap
+import com.tarehimself.mira.storage.MediaStorage
 import io.github.aakira.napier.Napier
 import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.client.request.header
@@ -43,6 +44,7 @@ import org.koin.compose.koinInject
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import sizeBytes
+import toBytes
 import toImageBitmap
 import kotlin.math.roundToInt
 
@@ -51,7 +53,7 @@ class NetworkImageRequest {
     private var headers: ArrayList<Pair<String, String>> = arrayListOf()
 
     val hashString: String
-        get() = "${url.hashCode()}${headers.joinToString { "[${it.first}|${it.second}]" }}".quickHash()
+        get() = "${url.hashCode()}${headers.joinToString { "[${it.first}|${it.second}]" }}".hash()
 
     private fun addHeader(key: String, value: String) {
         headers.add(Pair(key, value))
@@ -61,11 +63,12 @@ class NetworkImageRequest {
 //        this.url = url
 //    }
 
-    fun fromMangaImage(image: MangaImage) {
+    fun fromMangaImage(image: MangaImage): NetworkImageRequest {
         this.url = image.src
         image.headers.forEach {
             addHeader(it.key, it.value)
         }
+        return this
     }
 
     fun toKtorRequest(): HttpRequestBuilder {
@@ -113,19 +116,26 @@ abstract class AsyncPainter : KoinComponent, Painter() {
     open fun onDisposed() {
 
     }
+
+//    open suspend fun saveToFile(filePath: String){
+//
+//    }
 }
 
 open class AsyncBitmapPainter : AsyncPainter() {
+    val isReady: MutableState<Boolean> = mutableStateOf(false)
     var resource: MiraBitmap? = null
         set(value) {
             if (value != null && value.get().height > 0 && value.get().width > 0) {
-                field = value
                 srcSize = IntSize(value.get().width, value.get().height)
                 value.use()
+                field = value
+                //Napier.d { "Set Resource" }
                 setProgress(1.0f)
                 setStatus(EAsyncPainterStatus.SUCCESS)
             } else {
                 field = null
+                //Napier.d { "Failed To Set Resource" }
                 setProgress(0.0f)
                 setStatus(EAsyncPainterStatus.FAIL)
             }
@@ -137,7 +147,7 @@ open class AsyncBitmapPainter : AsyncPainter() {
 
     open val abandonOnDispose = true
 
-    private var srcSize: IntSize = IntSize.Zero
+    private var srcSize: IntSize = IntSize(1,1)
     override val intrinsicSize: Size
         get() = srcSize.toSize()
 
@@ -156,9 +166,11 @@ open class AsyncBitmapPainter : AsyncPainter() {
 
             if(!image.usable() || size.minDimension == 0.0f){
                 onDisposed()
+                Napier.d { "Image To Draw Is Not Usable" }
                 return
             }
 
+            Napier.d { "Image Drawn" }
             drawImage(
                 image.get(),
                 IntOffset(0, 0),
@@ -171,7 +183,10 @@ open class AsyncBitmapPainter : AsyncPainter() {
                 colorFilter = colorFilter,
                 filterQuality = filterQuality
             )
+        } ?: run {
+            Napier.d { "Tried To Draw Image But It is Not Valid ${status.value}" }
         }
+
     }
 
     var progress = mutableStateOf(0.0f)
@@ -205,6 +220,13 @@ open class AsyncBitmapPainter : AsyncPainter() {
             }
         }
     }
+
+//    override suspend fun saveToFile(filePath: String) {
+//        super.saveToFile(filePath)
+//        resource?.let {
+//            FileBridge.saveFile(filePath,it.get().toBytes().toChannel())
+//        }
+//    }
 }
 
 @Composable
@@ -248,18 +270,22 @@ open class AsyncNetworkPainter : AsyncBitmapPainter() {
 
     private val imageRepository: ImageRepository by inject()
 
-    var chunkSize: Long = 1024
+    var chunkSize: Long = 16384
 
     var maxWidth: Int = 0
 
     var loadFromExternalCache: suspend (key: String) -> ImageBitmap? = { null }
 
-    var saveToExternalCache: suspend (key: String, value: ByteReadChannel) -> Unit = { _, _ -> }
+    var saveToExternalCache: suspend (key: String,value: ByteReadChannel) -> Unit = { _, _ -> }
 
     lateinit var request: NetworkImageRequest
 
     private val memoryCacheKey: String
-        get() = "${maxWidth}${request.hashString}".quickHash()
+    get() = "${maxWidth}${request.hashString}".hash()
+
+    private val externalCacheKey: String
+        get() = request.hashString.hash()
+
 
     open suspend fun load() {
         withContext(Dispatchers.IO) {
@@ -269,7 +295,7 @@ open class AsyncNetworkPainter : AsyncBitmapPainter() {
                 return@withContext
             }
 
-            loadFromExternalCache(request.hashString)?.let {
+            loadFromExternalCache(externalCacheKey)?.let {
                 val miraBitmap = it.createMiraBitmap()
                 imageRepository.cache.put(key = memoryCacheKey, value = miraBitmap)
                 resource = miraBitmap
@@ -292,14 +318,14 @@ open class AsyncNetworkPainter : AsyncBitmapPainter() {
                         setProgress(current.toFloat() / total.toFloat())
                     }
                 }
-
+                Napier.d { "Making bitmap for ${request.toKtorRequest().url}" }
                 allBytes.toImageBitmap(maxWidth = maxWidth)?.let { bitmap ->
                     val miraBitmap = bitmap.createMiraBitmap()
 
                     imageRepository.cache.put(memoryCacheKey, miraBitmap)
                     resource = miraBitmap
 
-                    saveToExternalCache(request.hashString, allBytes.toChannel())
+                    saveToExternalCache(externalCacheKey,allBytes.toChannel())
 
                     return@withContext
                 }
@@ -322,20 +348,12 @@ open class AsyncNetworkPainter : AsyncBitmapPainter() {
 @Composable
 fun rememberNetworkPainter(
     filterQuality: FilterQuality = FilterQuality.High,
-    chunkSize: Long = 2 * 1024 * 1024,
+    chunkSize: Long = 16384,
     maxWidth: Int = koinInject<ImageRepository>().deviceWidth.value,
-    loadFromExternalCache: suspend (key: String) -> ImageBitmap? = { key ->
-        withContext(
-            Dispatchers.IO
-        ) {
-            bitmapFromCache(key, maxWidth = maxWidth)
-        }
+    loadFromExternalCache: suspend (key: String) -> ImageBitmap? = { _ ->
+        null
     },
-    saveToExternalCache: suspend (key: String, value: ByteReadChannel) -> Unit = { key, value ->
-        withContext(
-            Dispatchers.IO
-        ) { FileBridge.cacheItem(key, value, maxSize = 500 * 1024 * 1024) }
-    },//700 * 1024 * 1024
+    saveToExternalCache: suspend (key: String,data: ByteReadChannel) -> Unit = { _, _ -> },
     block: NetworkImageRequest.() -> Unit
 ): AsyncNetworkPainter {
 
@@ -370,31 +388,56 @@ fun rememberNetworkPainter(
 
 @Composable
 fun rememberCoverPreviewPainter(
+    sourceId: String,
+    mangaId: String,
     filterQuality: FilterQuality = FilterQuality.High,
-    chunkSize: Long = 1024,
+    chunkSize: Long = 16384,
+    realmRepository: RealmRepository = koinInject(),
+    maxWidth: Int = koinInject<ImageRepository>().deviceWidth.value / 2,
     block: NetworkImageRequest.() -> Unit
 ): AsyncNetworkPainter {
-
 
     return rememberNetworkPainter(
         filterQuality = filterQuality,
         chunkSize = chunkSize,
-        maxWidth = koinInject<ImageRepository>().deviceWidth.value / 2,
-        block = block
+        loadFromExternalCache = {
+            val filePath = when(realmRepository.has(sourceId,mangaId)){
+                true -> MediaStorage.getBookmarkCoverPath(sourceId,mangaId)
+                else -> MediaStorage.getCachedCoverPath(it)
+            }
+
+            filePath?.let {validFilePath ->
+                bitmapFromFile(validFilePath,maxWidth)
+            }
+        },
+        saveToExternalCache = { key, data ->
+            when(realmRepository.has(sourceId,mangaId)){
+                true -> MediaStorage.saveBookmarkCover(sourceId,mangaId,data)
+                else -> MediaStorage.saveCachedCover(key,data)
+            }
+        },
+        maxWidth = maxWidth,
+        block = block,
+
     )
 }
 
 @Composable
 fun rememberCoverPainter(
+    sourceId: String,
+    mangaId: String,
     filterQuality: FilterQuality = FilterQuality.High,
-    chunkSize: Long = 1024,
+    chunkSize: Long = 16384,
+    maxWidth: Int = koinInject<ImageRepository>().deviceWidth.value,
     block: NetworkImageRequest.() -> Unit
 ): AsyncNetworkPainter {
 
-    return rememberNetworkPainter(
+    return rememberCoverPreviewPainter(
+        sourceId = sourceId,
+        mangaId = mangaId,
         filterQuality = filterQuality,
         chunkSize = chunkSize,
-        maxWidth = koinInject<ImageRepository>().deviceWidth.value,
+        maxWidth = maxWidth,
         block = block
     )
 }
@@ -449,10 +492,10 @@ class AsyncCustomPainter(val loader: suspend () -> ImageBitmap?,cacheKeyFunction
 fun rememberCustomPainter(
     loader: suspend () -> ImageBitmap?,
     cacheKeyFunction: () -> String? = { null },
-    loaderKeyFunction: () -> String? = { null }
+    rememberKey: () -> String? = { null }
 ): AsyncCustomPainter {
 
-    val painter = remember(loaderKeyFunction()) {
+    val painter = remember(rememberKey()) {
         AsyncCustomPainter(
             loader = loader,
             cacheKeyFunction = cacheKeyFunction,
@@ -467,7 +510,6 @@ fun rememberCustomPainter(
 
     DisposableEffect(painter) {
         onDispose {
-            Napier.d { "Local Painter Disposed" }
             painter.onDisposed()
         }
     }
@@ -484,11 +526,11 @@ fun <T : AsyncPainter> AsyncImage(
     crossFadeDuration: Int = 500,
     modifier: Modifier = Modifier,
     onLoading: (@Composable (painter: T) -> Unit) = { },
-    onFail: (@Composable (painter: T) -> Unit) = { }
+    onFail: (@Composable (painter: T) -> Unit) = {  }
 ) {
 
 
-    val status by remember(asyncPainter) { asyncPainter.status }
+    val status by asyncPainter.status
 
     Crossfade(status, animationSpec = tween(crossFadeDuration)) {
         when (it) {
@@ -497,12 +539,14 @@ fun <T : AsyncPainter> AsyncImage(
             }
 
             AsyncPainter.EAsyncPainterStatus.SUCCESS -> {
-                Image(
-                    painter = asyncPainter,
-                    contentDescription = contentDescription,
-                    modifier = modifier,
-                    contentScale = contentScale
-                )
+                if(status == AsyncPainter.EAsyncPainterStatus.SUCCESS){
+                    Image(
+                        painter = asyncPainter,
+                        contentDescription = contentDescription,
+                        modifier = modifier,
+                        contentScale = contentScale
+                    )
+                }
             }
 
             AsyncPainter.EAsyncPainterStatus.FAIL -> {

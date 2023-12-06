@@ -1,16 +1,13 @@
 package com.tarehimself.mira.screens.settings
 
+import FileBridge
+import ShareBridge
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.absoluteOffset
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.material.Surface
-import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -18,39 +15,43 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.tarehimself.mira.common.EFilePaths
+import com.tarehimself.mira.common.LocalBackHandler
+import com.tarehimself.mira.common.toChannel
 import com.tarehimself.mira.common.ui.LocalMiraDialogController
 import com.tarehimself.mira.common.ui.MiraDialogContainer
 import com.tarehimself.mira.common.ui.TextInputCard
 import com.tarehimself.mira.data.ChapterDownloader
 import com.tarehimself.mira.data.ImageRepository
+import com.tarehimself.mira.data.MiraRealmExport
+import com.tarehimself.mira.data.RealmRepository
 import com.tarehimself.mira.data.SettingsRepository
-import compose.icons.AllIcons
-import compose.icons.FontAwesomeIcons
-import compose.icons.fontawesomeicons.Regular
-import compose.icons.fontawesomeicons.Solid
-import compose.icons.fontawesomeicons.solid.CompactDisc
-import compose.icons.fontawesomeicons.solid.EyeSlash
-import compose.icons.fontawesomeicons.solid.Language
-import compose.icons.fontawesomeicons.solid.Memory
-import compose.icons.fontawesomeicons.solid.Plus
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
+import kotlinx.serialization.InternalSerializationApi
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonEncoder
+import kotlinx.serialization.serializer
 import org.koin.compose.koinInject
 import kotlin.math.roundToInt
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, InternalSerializationApi::class)
 @Composable
 fun SettingsContent(
     component: SettingsComponent,
     chapterDownloader: ChapterDownloader = koinInject(),
     imageRepository: ImageRepository = koinInject(),
-    settingsRepository: SettingsRepository = koinInject()
+    settingsRepository: SettingsRepository = koinInject(),
+    realmRepository: RealmRepository = koinInject()
 ) {
 //    val state by component.state.subscribeAsState(neverEqualPolicy())
 
@@ -76,11 +77,25 @@ fun SettingsContent(
 //                    textAlign = TextAlign.Center
 //                )
 //            }
-            MiraDialogContainer {
+//            MiraDialogContainer {
 
                 val dialogController = LocalMiraDialogController.current
-
+                val backHandler = LocalBackHandler.current
                 LazyColumn(modifier = Modifier.fillMaxSize()) {
+                    item {
+                        SettingsContentItem(onPressed = {
+                            coroutineScope.launch {
+                                val exported = Json.encodeToString(MiraRealmExport::class.serializer(),realmRepository.export())
+                                FileBridge.writeFile("export.json",exported.encodeToByteArray().toChannel(),EFilePaths.SharedFiles)
+                                FileBridge.getFilePath("export.json",EFilePaths.SharedFiles)?.let {sharedPath ->
+                                    ShareBridge.shareFile(sharedPath)
+                                }
+                            }
+
+                        }) {
+                            Text("Export Data")
+                        }
+                    }
                     item {
                         SettingsContentItem(onPressed = {
                             coroutineScope.launch {
@@ -119,7 +134,7 @@ fun SettingsContent(
                         var sourcesApi by settingsRepository.sourcesApi
 
                         SettingsContentItem(onPressed = {
-                            dialogController.show {
+                            dialogController.show(data = null,backHandler = backHandler) {
                                 TextInputCard(initialValue = sourcesApi,
                                     modifier = Modifier.align(
                                         Alignment.Center
@@ -151,7 +166,7 @@ fun SettingsContent(
                         var translatorEndpoint by settingsRepository.translatorEndpoint
 
                         SettingsContentItem(onPressed = {
-                            dialogController.show {
+                            dialogController.show(data = null,backHandler = backHandler) {
                                 TextInputCard(initialValue = translatorEndpoint,
                                     modifier = Modifier.align(
                                         Alignment.Center
@@ -177,7 +192,7 @@ fun SettingsContent(
                         }
                     }
                 }
-            }
+//            }
 
         }
     }

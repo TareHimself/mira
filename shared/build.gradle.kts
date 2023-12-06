@@ -117,6 +117,8 @@ kotlin {
         val androidMain by getting {
             dependencies {
                 implementation("io.ktor:ktor-client-android:$ktorVersion")
+                implementation("org.objenesis:objenesis:3.2")
+                implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.jar"))))
             }
         }
 //        val iosMain by creating {
@@ -135,6 +137,11 @@ android {
     compileSdk = 33
     defaultConfig {
         minSdk = 24
+    }
+    sourceSets {
+        getByName("main") {
+            manifest.srcFile ("src/androidMain/AndroidManifest.xml")
+        }
     }
 }
 dependencies {

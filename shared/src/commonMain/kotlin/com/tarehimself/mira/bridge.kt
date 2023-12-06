@@ -2,49 +2,50 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ImageBitmap
-import com.tarehimself.mira.common.ECacheType
+import com.tarehimself.mira.common.EFilePaths
 import io.ktor.utils.io.ByteReadChannel
+
 
 expect class ShareBridge {
     companion object {
         fun shareText(data: String)
 
-        suspend fun shareImage(data: ByteArray)
+        suspend fun shareFile(filePath: String)
+
+        suspend fun saveImage(filePath: String)
     }
 }
 
 expect class FileBridge {
     companion object {
-        suspend fun cacheItem(key: String, channel: ByteReadChannel, type: ECacheType = ECacheType.Images, maxSize: Long = 0)
 
-        suspend fun clearCache(type: ECacheType = ECacheType.Images)
+//        suspend fun saveFile(path: String, channel: ByteReadChannel)
+//        suspend fun getFile(path: String) : Pair<ByteReadChannel, Long>?
+        suspend fun writeFile(key: String, channel: ByteReadChannel, type: EFilePaths, maxSize: Long = 0)
 
-        suspend fun getCacheSize(type: ECacheType = ECacheType.Images): Long?
+        suspend fun clearFiles(type: EFilePaths)
 
-        suspend fun getCachedItem(key: String,type: ECacheType = ECacheType.Images): Pair<ByteReadChannel, Long>?
+        suspend fun getDirSize(type: EFilePaths): Long?
 
-        suspend fun getCachedItemPath(key: String,type: ECacheType = ECacheType.Images): String?
+        suspend fun readFile(key: String, type: EFilePaths): Pair<ByteReadChannel, Long>?
 
-        suspend fun saveChapterPage(mangaKeyHash: String, chapterIdHash: String, page: Int, channel: ByteReadChannel): Boolean
+        suspend fun readFile(filePath: String): Pair<ByteReadChannel, Long>?
+
+        suspend fun getFilePath(key: String, type: EFilePaths): String?
+
+        fun getDirPath(type: EFilePaths): String?
+
+        suspend fun saveChapterPage(sourceId: String,mangaId: String, chapterId: String, pageIndex: Int,channel: ByteReadChannel): Boolean
 
         fun isChapterDownloaded(mangaKeyHash: String, chapterIdHash: String): Boolean
 
-        fun deleteDownloadedChapter(mangaKeyHash: String, chapterIdHash: String): Boolean
+        suspend fun getChapterPagePath(sourceId: String,mangaId: String, chapterId: String, pageIndex: Int): String?
 
-        suspend fun getDownloadedChapterPage(
-            mangaKeyHash: String,
-            chapterIdHash: String,
-            page: Int): Pair<ByteReadChannel, Long>?
+        suspend fun getChapterPageCount(sourceId: String,mangaId: String, chapterId: String): Int
 
-        suspend fun getDownloadedChapterPageAsBitmap(
-            mangaKeyHash: String,
-            chapterIdHash: String,
-            page: Int,
-            maxWidth: Int): ImageBitmap?
+        suspend fun deleteChapter(sourceId: String,mangaId: String, chapterId: String): Boolean
 
-        fun getDownloadedChapterPagesNum(mangaKeyHash: String, chapterIdHash: String): Int
-
-        suspend fun deleteDownloadedChapters(): Boolean
+        suspend fun deleteAllChapters(): Boolean
     }
 }
 
@@ -73,7 +74,29 @@ expect fun ImageBitmap.toBytes(): ByteArray
 
 expect fun ImageBitmap.usable(): Boolean
 
-expect suspend fun bitmapFromCache(key: String, type: ECacheType = ECacheType.Images, maxWidth: Int = 0): ImageBitmap?
+expect suspend fun bitmapFromFile(key: String, type: EFilePaths, maxWidth: Int = 0): ImageBitmap?
+
+expect suspend fun bitmapFromFile(filePath: String, maxWidth: Int = 0): ImageBitmap?
+
+
+expect fun Modifier.imePadding(): Modifier
+
+
+expect class MiraFile(path: String){
+    fun absolutePath(): String
+
+    fun exists(): Boolean
+
+    suspend fun write(data: ByteReadChannel): Boolean
+
+    suspend fun read(): Pair<ByteReadChannel,Long>?
+
+    operator fun MiraFile.plus(item: MiraFile): MiraFile
+
+    operator fun MiraFile.plus(item: String): MiraFile
+
+    override fun toString(): String
+}
 
 
 

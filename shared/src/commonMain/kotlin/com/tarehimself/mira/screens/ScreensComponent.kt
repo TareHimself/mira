@@ -16,6 +16,7 @@ import com.arkivanov.essenty.parcelable.Parcelable
 import com.arkivanov.essenty.parcelable.Parcelize
 import com.arkivanov.essenty.statekeeper.consume
 import com.tarehimself.mira.RootComponent
+import com.tarehimself.mira.common.HandlesBack
 import com.tarehimself.mira.data.ApiMangaHeader
 import com.tarehimself.mira.data.ApiMangaImage
 import com.tarehimself.mira.data.ApiMangaPreview
@@ -29,7 +30,7 @@ import com.tarehimself.mira.screens.settings.SettingsComponent
 import com.tarehimself.mira.screens.sources.SourcesComponent
 
 
-interface ScreensComponent {
+interface ScreensComponent : HandlesBack {
 
     val stack: Value<ChildStack<*, Child>>
 
@@ -136,7 +137,7 @@ class DefaultScreensComponent(
         DefaultBookmarksComponent(
             componentContext = context,
             onMangaSelected = {
-                root.navigateToMangaViewer(
+                root.navigateToViewer(
                     sourceId = it.sourceId,
                     preview = ApiMangaPreview(
                         id = it.id,
@@ -159,6 +160,9 @@ class DefaultScreensComponent(
             componentContext = context,
             onSourceSelected = {
                 root.navigateToSearch(it)
+            },
+            onSearchMultiple = {
+                root.navigateToGlobalSearch("",it)
             }
         )
 
@@ -201,6 +205,14 @@ class DefaultScreensComponent(
         state.update {
             it.activeScreen = ScreensComponent.EActiveScreen.Settings
             it
+        }
+    }
+
+    override fun registerBackHandler(handler: () -> Unit): () -> Unit {
+        val callback = BackCallback(isEnabled = true,onBack = handler)
+        backHandler.register(callback)
+        return {
+            backHandler.unregister(callback)
         }
     }
 }
